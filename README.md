@@ -1,50 +1,41 @@
 # AutoBook
 
-Agente de descarga de libros desde **Anna's Archive** controlado por IA a través de **opencode** o **Claude Code** (terminal o **app de escritorio**). Le das un título (y opcionalmente idioma/formato) y la IA busca, filtra, descarga y guarda el libro organizado en tu PC.
+Agente de descarga de libros desde **Anna's Archive** controlado por IA a través de **Claude Code** (terminal o app de escritorio) u **opencode**. Le das un título y la IA hace todo el circuito:
 
-Funciona por la vía **gratuita** (`slow download`), sin donación ni API key. Usa una ventana de **Chrome real** (tu navegador, lanzado con debugging remoto y un perfil dedicado) para superar automáticamente la protección **DDoS-Guard** sin captchas. El tool **nunca cierra tu navegador**: tu Chrome/Edge normal queda intacto.
+```
+buscar → descargar → importar a Calibre (metadatos limpios) → convertir → enviar a tu Kindle/Kobo
+```
 
-Opcionalmente se integra con **Calibre** en un solo pipeline: descarga → importa a tu biblioteca (metadatos limpios, sin duplicados) → convierte y envía a tu **Kindle/Kobo** cuando está conectado. Ver [docs/calibre.md](docs/calibre.md).
+- Funciona por la vía **gratuita** (`slow download`), sin donación ni API key.
+- Usa una ventana de **Chrome real** (perfil dedicado) para superar **DDoS-Guard** sin captchas. **Nunca cierra tu navegador**: tu Chrome/Edge normal queda intacto.
+- La integración con **Calibre** es opcional pero viene lista: autodetecta `calibredb`, tu biblioteca y tu Kindle/Kobo (por unidad **o MTP**, sin necesidad de letra de unidad).
 
 > **Nota legal**: Anna's Archive indexa obras con derechos de autor. Usa esta herramienta solo con obras de dominio público, licencias abiertas (Creative Commons, etc.) o material que tengas derecho a descargar.
 
-## Cómo funciona
-
-```
-Tú (opencode / Claude Code) ──► IA ──► MCP tools ──► autobook (Python)
-                                   │                  ├── book_search  → GET /search (curl_cffi + Chrome vía CDP)
-                                   │                  ├── book_download → slow_download (Chrome vía CDP)
-                                   │                  └── get_download_status → polling
-                                   ▼
-                        <DOWNLOAD_DIR>/<Serie>/Book NN - <Título>.epub
-```
-
-- **Búsqueda**: primero HTTP directo con `curl_cffi` (impersona Chrome). Como DDoS-Guard lo bloquea, cae a una pestaña del navegador real, que se verifica solo (~7 s) y devuelve el HTML.
-- **Descarga**: sigue el enlace `/slow_download/…` en el navegador real, hace clic en "Download now" del partner y captura el archivo (la portada ya viene dentro del libro).
-- **Organización**: por defecto `downloads/<Autor>/<Título>.<ext>`; si indicas `series` (opcionalmente `series_index`) guarda `downloads/<Serie>/Book NN - <Título>.<ext>` con nombres coherentes para todos los volúmenes.
-- **Calibre (opcional, un solo pipeline)**: `book_download(..., to_calibre=true, to_device=true)` descarga, importa con `calibredb` (autor/título normalizados, sin duplicados) y envía al Kindle/Kobo (unidad o MTP) convirtiendo al formato destino. Valida antes de empezar que Calibre y el dispositivo estén disponibles.
+---
 
 ## Requisitos
 
-- Windows
-- Python 3.10+ ([python.org](https://www.python.org/downloads/), marcar **"Add python.exe to PATH"**)
-- **Google Chrome** (por defecto) o **Microsoft Edge** como respaldo (auto-detectados).
-- [Claude Code](https://claude.com/claude-code) (terminal o **app de escritorio**) **o** [opencode](https://opencode.ai).
-- Opcional para la integración con biblioteca/dispositivo: [Calibre](https://calibre-ebook.com/) instalado.
+| Requisito | Detalles |
+| :--- | :--- |
+| Windows | 10/11. |
+| Python 3.10+ | [python.org](https://www.python.org/downloads/) — marca **"Add python.exe to PATH"** al instalar. |
+| Google Chrome o Edge | Auto-detectados (Edge viene con Windows). |
+| Claude Code **u** opencode | [Claude Code](https://claude.com/claude-code) (terminal o app de escritorio) u [opencode](https://opencode.ai). |
+| Calibre *(opcional)* | [calibre-ebook.com](https://calibre-ebook.com/) — solo si quieres importar a la biblioteca y enviar al Kindle. |
 
 ---
 
-## Instalación fácil en otra PC — Claude Code (app de escritorio) o opencode
+## Instalación en cualquier PC
 
-La forma más rápida: **descargar, abrir la IA en la carpeta y pegar un prompt**. La propia IA instala, configura y verifica todo. El mismo venv sirve para Claude Code **y** para opencode: si instalas para uno, el otro también queda listo.
+Dos caminos: **que lo instale la IA** (recomendado, no tocas JSON) o **manual**.
 
-### Paso 1 — Consigue el proyecto
+### Opción A — Que lo instale la IA (recomendada)
 
-Descarga el ZIP desde el repo en GitHub (botón verde **Code → Download ZIP**) o clona con `git clone <url>`. Descomprime y queda una carpeta llamada `AutoBook`.
+1. **Consigue el proyecto**: descarga el ZIP desde GitHub (botón verde **Code → Download ZIP**) o `git clone <url>`. Descomprime: queda una carpeta `AutoBook`.
+2. **Abre tu IA en esa carpeta** y pega el prompt de abajo.
 
-### Paso 2 — Abre Claude Code en la carpeta y pega este prompt
-
-Abre la **app de escritorio de Claude Code**, selecciona la carpeta `AutoBook` como proyecto y pega el bloque completo de abajo (cópialo tal cual):
+**Con la app de escritorio de Claude Code**: abre la app, selecciona la carpeta `AutoBook` como proyecto y pega este bloque completo (cópialo tal cual):
 
 ```text
 Estás en la carpeta del proyecto AutoBook. Instálalo y regístralo como servidor MCP local (stdio) para Claude Code. Haz exactamente esto:
@@ -69,18 +60,18 @@ Estás en la carpeta del proyecto AutoBook. Instálalo y regístralo como servid
 
 5. Verifica que el JSON es válido y que .mcp.json está en la raíz.
 6. Dime que cierre por completo la app (icono de la bandeja del sistema → Quit; no basta cerrar la ventana) y la abra de nuevo en esta carpeta.
-7. Cuando la IA confirme el reinicio, acepta la aprobación de las tools MCP que pida la app y prueba con: "Usa la tool book_search para buscar 'El Principito' en español, formato epub, y descárgalo esperando a que termine."
+7. Cuando la IA confirme el reinicio, acepta la aprobación de las tools MCP que pida la app y prueba con: "Usa la tool calibre_status para verificar la integración, y luego usa book_search para buscar 'El Principito' en español, formato epub."
 ```
 
-> **¿Usas opencode en vez de Claude Code? No necesitas pegar nada extra.** El prompt de arriba crea el venv (lo único que falta); el registro del MCP ya viene en `opencode.json` del proyecto. Abre opencode dentro de la carpeta `AutoBook`, reinícialo si hace falta y ejecuta `/mcp` para confirmar que `autobook` está conectado. Si ya instalaste con Claude Code, opencode también queda listo (comparten el mismo venv).
+**Con opencode**: no necesitas pegar nada extra. El prompt de arriba crea el venv (lo único que falta); el registro del MCP ya viene en `opencode.json` del proyecto. Abre opencode dentro de la carpeta `AutoBook`, reinícialo si hace falta y ejecuta `/mcp` para confirmar que `autobook` está conectado. Si ya instalaste con Claude Code, opencode también queda listo (comparten el mismo venv).
 
-### Paso 3 — Verificar (opcional)
+> En **`docs/instalacion-ai.md`** hay variantes de estos prompts y la explicación de qué es normal la primera vez.
 
-En la app, ejecuta `/mcp` (o revisa el menú de herramientas MCP): debe aparecer `autobook` conectado.
+### Opción B — Manual
 
-### Alternativa sin IA — comando PowerShell
+**Automática (Windows):** doble clic en `install.bat` dentro de la carpeta. Crea el venv, instala dependencias y comprueba que el servidor arranca.
 
-Si no quieres que lo haga la IA, abre PowerShell **en la carpeta de AutoBook** y pega:
+**Por línea de comandos** (PowerShell, dentro de la carpeta `AutoBook`):
 
 ```powershell
 python -m venv .venv
@@ -89,9 +80,17 @@ $p = (Resolve-Path .\.venv\Scripts\python.exe).Path.Replace('\','\\')
 [System.IO.File]::WriteAllText("$PWD\.mcp.json", '{"mcpServers":{"autobook":{"type":"stdio","command":"' + $p + '","args":["-m","autobook.server"]}}}')
 ```
 
-Luego cierra del todo la app de Claude Code y vuelve a abrirla en esa carpeta.
+Luego cierra del todo tu IA y vuelve a abrirla en esa carpeta. No hace falta `playwright install` ni descargar navegadores: se usa el Chrome/Edge instalado.
 
-> **⚠️ Confusión común**: la app de escritorio de **Claude Code** lee `.mcp.json` (como el CLI). La app de chat **Claude Desktop** es otra cosa: usa el archivo `%APPDATA%\Claude\claude_desktop_config.json` y **no** funciona para esto. Usa siempre **Claude Code**.
+### Verificación
+
+Dentro de la IA, pide:
+
+> Usa la tool `calibre_status` y `check_mirrors` de autobook y dime qué ves.
+
+Deberías ver la ruta de `calibredb`, tu biblioteca y si hay dispositivo conectado (si tienes Calibre), y qué mirrors de Anna's Archive están vivos.
+
+> **⚠️ Confusión común**: la app de escritorio de **Claude Code** lee `.mcp.json` (como el CLI). La app de chat **Claude Desktop** es otra cosa: usa `%APPDATA%\Claude\claude_desktop_config.json` y **no** funciona para esto. Usa siempre **Claude Code**.
 
 ---
 
@@ -99,10 +98,8 @@ Luego cierra del todo la app de Claude Code y vuelve a abrirla en esa carpeta.
 
 Depende de **dónde registres** el MCP, no del servidor en sí (autobook funciona igual desde cualquier carpeta: resuelve sus rutas contra su propia carpeta; los libros van a `<AutoBook>\downloads` salvo que lo cambies con `set_download_dir`).
 
-- **Solo en la carpeta de AutoBook** (configuración por proyecto, la recomendada para empezar): el MCP se carga solo cuando abres Claude Code u opencode **dentro** de la carpeta `AutoBook`. Es lo que hacen los pasos de arriba (`.mcp.json` para Claude Code, `opencode.json` para opencode).
-- **Desde cualquier carpeta** (registro global/usuario): el MCP queda disponible aunque abras la IA en cualquier otro proyecto. Es lo mismo, pero registrado a nivel global con **ruta absoluta**.
-
-### Registrarlo global (desde cualquier carpeta)
+- **Solo en la carpeta de AutoBook** (configuración por proyecto, la recomendada para empezar): el MCP se carga solo cuando abres Claude Code u opencode **dentro** de la carpeta `AutoBook`. Es lo que hace la instalación de arriba (`.mcp.json` para Claude Code, `opencode.json` para opencode).
+- **Desde cualquier carpeta** (registro global/usuario): el MCP queda disponible aunque abras la IA en cualquier otro proyecto. Se registra a nivel global con **ruta absoluta**:
 
 **Claude Code** — una sola línea (desde la carpeta de AutoBook):
 
@@ -124,59 +121,92 @@ claude mcp add autobook --scope user -- "C:\ruta\absoluta\a\AutoBook\.venv\Scrip
 }
 ```
 
-Luego **reinicia** Claude Code u opencode. Nota: si abres la IA fuera de la carpeta de AutoBook, `install.bat` no es necesario (el venv vive dentro de AutoBook), pero la primera vez hay que haber creado el venv.
+Luego **reinicia** Claude Code u opencode.
 
 ---
 
-## Instalación manual (cualquier herramienta)
+## Flujo del MCP (guía para la IA)
 
-```powershell
-cd C:\ruta\a\AutoBook
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Cuando el usuario pide un libro, el circuito correcto es:
+
+### 1. Buscar y elegir bien
+
+`book_search(query, language, format)` devuelve candidatos con `title`, `author`, `filesize`, `md5`, etc. **La elección del resultado importa**: prefiere títulos con mayúsculas correctas, autores limpios (idealmente formato `Apellido, Nombre`) y tamaño razonable (descarta resultados de pocos bytes). Los resultados con metadatos sucios (corchetes, minúsculas, contribuyentes extra) ensucian el nombre final en Calibre y en el dispositivo.
+
+### 2. Lanzar el pipeline completo
+
+```
+book_download(md5, title, author, extension,
+              series?, series_index?,     # para sagas: nombres "Book NN - Título"
+              language?,                  # del resultado de búsqueda
+              to_calibre=true,            # importar a Calibre
+              to_device=true/false,       # enviar al Kindle/Kobo
+              device_format?)             # por defecto azw3
 ```
 
-No hace falta `playwright install` ni descargar navegadores: se usa el Chrome/Edge instalado.
+- **Validación fail-fast**: si `to_calibre=true` y Calibre no está detectado, o `to_device=true` y no hay dispositivo conectado, la tool devuelve error **de inmediato** (sin descargar). La IA debe avisar al usuario (conectar el Kindle, instalar Calibre) o relanzar sin esas etapas.
+- Para series: un `book_download` por volumen, **uno a la vez** (la cola gratis es por IP; en paralelo se enlentecen).
 
-## Registro manual del MCP
+### 3. Polling hasta el final
 
-- **opencode**: ya viene registrado en `opencode.json` (comando relativo `.venv\Scripts\python.exe -m autobook.server`).
-- **Claude Code** (terminal o app de escritorio): crea `.mcp.json` en la raíz con la **ruta absoluta** del python del venv:
+`get_download_status(job_id)` en bucle (cada ~10 s) hasta `status: done` o `error`:
 
-  ```json
-  {
-    "mcpServers": {
-      "autobook": {
-        "type": "stdio",
-        "command": "C:\\ruta\\absoluta\\a\\AutoBook\\.venv\\Scripts\\python.exe",
-        "args": ["-m", "autobook.server"]
-      }
-    }
-  }
-  ```
+| status | stage | Significado |
+| :--- | :--- | :--- |
+| `queued` / `downloading` | `download` | Descarga en curso (1–10 min; cola por IP). |
+| `importing` | `calibre` | Importando a Calibre con metadatos limpios. |
+| `sending` | `device` | Incrustando metadatos, convirtiendo y copiando al dispositivo. |
+| `done` | `done` | Todo listo: `dest` (archivo), `calibre_book_id`, `device_dest`. |
+| `waiting_captcha` | — | El usuario debe resolver el CAPTCHA en la ventana del navegador. |
+| `error` | `download` / `calibre` / `device` | Falló **esa etapa**; las previas se conservan. |
 
-  (El prompt de arriba genera este archivo automáticamente.)
+### 4. Reintentar solo la etapa fallida
 
-**Primera vez**: la primera búsqueda o descarga abre una **ventana de Chrome/Edge** con un **perfil dedicado** (`.chrome-profile/`), separada de tu navegador normal. Es normal y necesaria. Queda **abierta a propósito** al terminar (el tool nunca mata el proceso del navegador); ciérrala a mano cuando quieras. Windows Firewall puede pedir permiso para Chrome/puerto 9333: permitir.
+- `stage=download` → relanzar `book_download` (o probar otro resultado).
+- `stage=calibre` → `calibre_add(job_id=…)`.
+- `stage=device` → `calibre_send_to_device(book_id=…)` cuando el dispositivo esté conectado.
 
-## Configuración opcional
+### 5. Arreglo profundo de metadatos (rara vez necesario)
 
-- `.env` (copia de `.env.example`): `DOWNLOAD_DIR` (carpeta de libros), `DEFAULT_LANGUAGE`, `DEFAULT_FORMAT`, `BROWSER_BINARY`, etc.
-- `config.yaml`: mirrors, idioma/formato por defecto, delays y tiempos.
+La importación ya normaliza autor/título/sorts. Si el usuario quiere enriquecer (sinopsis, editorial…) y está instalado el **MCP de calibre**: `calibre_get_book_details` → `calibre_fetch_metadata(apply)` → `calibre_embed_metadata`. Ver [docs/calibre.md](docs/calibre.md).
+
+### Prompts de ejemplo del usuario
+
+> "Descarga 'El Señor de los Anillos' en inglés, los tres libros como serie, y mándalos a mi Kindle."
+
+> "Descarga 'Pedro Páramo' en español epub y guárdalo en mi biblioteca de Calibre."
+
+> "¿Qué mirrors están vivos?" / "¿Está mi Kindle conectado?"
+
+---
 
 ## Herramientas MCP disponibles
 
 | Tool | Descripción |
 | :--- | :--- |
 | `book_search(query, language, format, limit)` | Busca y devuelve resultados con título, autor, idioma, formato, tamaño y **md5**. |
-| `book_download(md5, title, author, extension, series, series_index, language, to_calibre, to_device, device_format)` | Pipeline completo: descarga → (Calibre) → (dispositivo). Valida fail-fast que Calibre/dispositivo estén si se piden. Devuelve `job_id`. |
+| `book_download(md5, title, author, extension, series, series_index, language, to_calibre, to_device, device_format)` | Pipeline completo: descarga → (Calibre) → (dispositivo). Valida fail-fast. Devuelve `job_id`. |
 | `get_download_status(job_id)` | Estado del pipeline: `queued/downloading/importing/sending/done/waiting_captcha/error` + `stage` (`download/calibre/device/done`) y resultados por etapa. |
 | `set_download_dir(path)` | Cambia la carpeta de descargas en caliente. |
 | `check_mirrors()` | Comprueba qué mirrors están vivos. |
 | `session_info()` | Estado del navegador y carpeta de descargas. |
-| `calibre_status()` | Estado de la integración: calibredb, biblioteca, GUI abierta, dispositivo detectado. |
-| `calibre_add(job_id \| path)` | Importa a Calibre con metadatos limpios (reintento de la etapa `calibre`). Devuelve `book_id`. |
-| `calibre_send_to_device(book_id \| path, format?)` | Envía al Kindle/Kobo (unidad o MTP) convirtiendo si hace falta (reintento de la etapa `device`). Por defecto AZW3. |
+| `calibre_status()` | Estado de la integración: calibredb, biblioteca, GUI abierta, dispositivo detectado (unidad o MTP). |
+| `calibre_add(job_id \| path)` | Importa a Calibre con metadatos limpios y sin duplicados (reintento de la etapa `calibre`). Devuelve `book_id`. |
+| `calibre_send_to_device(book_id \| path, format?)` | Incrusta metadatos, convierte (por defecto AZW3) y envía al Kindle/Kobo (reintento de la etapa `device`). |
+
+---
+
+## Configuración opcional
+
+- `.env` (copia de `.env.example`): `DOWNLOAD_DIR`, `DEFAULT_LANGUAGE`, `DEFAULT_FORMAT`, `CALIBRE_LIBRARY`, `DEVICE_FORMAT`, `DEVICE_PATH`, etc.
+- `config.yaml`: mirrors, idioma/formato por defecto, delays, CDP y bloque `calibre:`.
+
+## Primera vez (qué es normal)
+
+- La primera búsqueda o descarga abre una **ventana de Chrome/Edge** con un **perfil dedicado** (`.chrome-profile/`), separada de tu navegador normal. Es necesaria: DDoS-Guard se verifica solo ahí (~5–8 s). **No la cierres** durante una descarga; al terminar queda abierta a propósito (el tool nunca mata el navegador) y puedes cerrarla a mano.
+- Windows Firewall puede pedir permiso para Chrome/puerto 9333: **permitir**.
+- Los libros quedan en `downloads/<Autor>/<Título>.<ext>` (o `downloads/<Serie>/Book NN - <Título>.<ext>` si es serie).
+- **Expulsa el Kindle de forma segura** antes de desconectarlo tras un envío.
 
 ## Estructura del proyecto
 
@@ -186,8 +216,8 @@ AutoBook/
 ├── opencode.json            # registro del MCP server (opencode)
 ├── install.bat              # instalador automático (Windows)
 ├── requirements.txt
-├── .env.example             # DOWNLOAD_DIR, mirror…
-├── config.yaml              # mirrors, idioma/formato, delays, CDP
+├── .env.example             # DOWNLOAD_DIR, mirror, calibre…
+├── config.yaml              # mirrors, idioma/formato, delays, CDP, calibre
 ├── LICENSE                  # MIT
 ├── docs/
 │   ├── instalacion-ai.md    # ★ prompts listos para que la IA instale el proyecto
@@ -201,7 +231,7 @@ AutoBook/
     ├── search.py            # búsqueda con curl_cffi + Chrome/CDP + parseo
     ├── browser.py           # BrowserSession: lanza Chrome/Edge real (CDP) y lo conduce por Playwright
     ├── downloader.py        # pipeline descarga -> Calibre -> dispositivo (jobs en segundo plano)
-    ├── organize.py          # saneado de nombres y rutas
+    ├── organize.py          # saneado de nombres, normalización de autores y sorts
     ├── calibre.py           # calibredb/ebook-convert: importar a biblioteca y enviar al dispositivo
     └── server.py            # FastMCP: expone las tools
 ```
@@ -211,6 +241,7 @@ AutoBook/
 - La ruta gratis es **lenta** (~1 a 10 min por libro, cola por IP). Si algún día quieres la API key (donación ~US$5 → descargas rápidas sin cola), el diseño lo admite añadiendo un `Downloader` alternativo.
 - Los mirrors caen y cambian de dominio seguido. `check_mirrors()` y la rotación en `mirrors.py` ayudan; revisa [open-slum.org](https://open-slum.org/) para la lista vigente.
 - Selectores HTML marcados como volátiles: valídalos contra el sitio real la primera vez (ver `docs/uso-opencode.md`).
+- El envío por MTP usa el Shell de Windows: el archivo puede tardar unos segundos en aparecer en el dispositivo.
 
 ## Extensión: usar un navegador distinto
 

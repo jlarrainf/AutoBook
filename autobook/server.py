@@ -42,7 +42,7 @@ def book_search(
     format: str | None = None,
     limit: int = 10,
 ) -> list[dict]:
-    """Busca libros en Anna's Archive. language es código ISO-639-1 (es, en, fr...) y format es epub/pdf/mobi/azw3. Devuelve resultados con title, author, language, extension, filesize, year, md5 y url. Usa el md5 del resultado para book_download."""
+    """Busca libros en Anna's Archive. language es código ISO-639-1 (es, en, fr...) y format es epub/pdf/mobi/azw3. Devuelve resultados con title, author, language, extension, filesize, year, md5 y url. Usa el md5 del resultado para book_download. IMPORTANTE al elegir resultado: prefiere títulos con mayúsculas correctas, autores limpios (idealmente 'Apellido, Nombre') y tamaño razonable (descarta los de pocos bytes); los resultados con metadatos sucios (corchetes, minúsculas, contribuyentes extra) ensucian el nombre final en Calibre y el dispositivo."""
     language = language or config.default_language
     format = format or config.default_format
     books = searcher.search(query, language=language, extension=format, limit=limit)

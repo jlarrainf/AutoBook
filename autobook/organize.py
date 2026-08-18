@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from pathvalidate import sanitize_filename
+
+_BRACKET_RE = re.compile(r"\[[^\]]*\]")
 
 
 def sanitize(name: str) -> str:
@@ -17,12 +20,16 @@ def normalize_author(author: str) -> str:
     - 'Apellido, Nombre' -> 'Nombre Apellido' (el orden que Calibre parsea bien).
     - 'Autor; Contribuidor' -> solo el primer autor (Anna's lista distribuidores,
       narradores, etc. tras punto y coma).
+    - Quita ruido entre corchetes: 'Hemingway Ernest [Hemingway Ernest]' -> 'Hemingway Ernest'.
     Solo transforma casos sin ambigüedad."""
     a = (author or "").strip()
     if not a:
         return a
     if ";" in a:
         a = a.split(";", 1)[0].strip()
+    cleaned = re.sub(r"\s+", " ", _BRACKET_RE.sub(" ", a)).strip()
+    if cleaned:
+        a = cleaned
     if "&" in a or " and " in a.lower():
         return a
     if a.count(",") == 1:
