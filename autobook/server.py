@@ -57,27 +57,40 @@ def book_download(
     extension: str = "epub",
     series: str | None = None,
     series_index: int | float | None = None,
+    language: str = "",
+    to_calibre: bool = True,
+    to_device: bool = False,
+    device_format: str = "",
 ) -> dict:
-    """Inicia la descarga de un libro por su md5 (ver book_search). Por defecto se guarda en <DOWNLOAD_DIR>/<Autor>/<Título>.<ext>. Si indicas series (y opcionalmente series_index) se guarda en <DOWNLOAD_DIR>/<Serie>/Book <NN> - <Título>.<ext>, con nombres coherentes para todos los volúmenes de una misma serie descargados juntos."""
-    job = downloader.submit(md5, title, author, extension, series, series_index)
+    """Pipeline completo: descarga un libro por su md5 (ver book_search), luego (si to_calibre) lo importa a la biblioteca de Calibre con metadatos limpios y sin duplicados, y luego (si to_device) lo convierte y envía al Kindle/Kobo conectado. Valida ANTES de empezar: si to_calibre/to_device es true y falta Calibre o el dispositivo, devuelve error de inmediato. Parámetros: series/series_index para nombrar volúmenes coherentemente; language (ISO-639-1) para el metadato de idioma; device_format opcional (por defecto calibre.device_format, azw3). Devuelve job_id; monitorea con get_download_status. Si una etapa posterior a la descarga falla, reintenta esa etapa con calibre_add(job_id) o calibre_send_to_device(book_id)."""
+    try:
+        job = downloader.submit(
+            md5, title, author, extension, series, series_index,
+            language=language, to_calibre=to_calibre, to_device=to_device,
+            device_format=device_format,
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
     return {"job_id": job.job_id, "status": job.status}
 
 
 @mcp.tool()
 def get_download_status(job_id: str) -> dict:
-    """Devuelve el estado de una descarga iniciada con book_download. status puede ser queued/downloading/waiting_captcha/done/error. Cuando sea 'done', lee el campo dest. Si es 'waiting_captcha', el usuario debe resolver un CAPTCHA manual en la ventana del navegador."""
+    """Estado del pipeline de book_download. status: queued/downloading/importing/sending/done/waiting_captcha/error. stage indica la etapa actual o fallida: download/calibre/device/done. Con status 'done': dest tiene el archivo, calibre_book_id el id en Calibre y device_dest la ruta en el dispositivo. Con status 'error': mira stage y los campos calibre_error/device_error para saber qué falló y reintentar solo esa etapa (calibre_add o calibre_send_to_device). Si es 'waiting_captcha', el usuario debe resolver un CAPTCHA manual en la ventana del navegador."""
     job = downloader.status(job_id)
     if job is None:
         return {"error": f"job {job_id} no encontrado"}
     return {
         "job_id": job.job_id,
         "status": job.status,
+        "stage": job.stage,
         "progress": job.progress,
         "dest": job.dest,
         "error": job.error,
-        "cover": job.cover,
         "calibre_book_id": job.calibre_book_id,
         "calibre_error": job.calibre_error,
+        "device_dest": job.device_dest,
+        "device_error": job.device_error,
     }
 
 
@@ -112,7 +125,7 @@ def session_info() -> dict:
 
 @mcp.tool()
 def calibre_status() -> dict:
-    """Estado de la integración con Calibre: si calibredb está encontrado, ruta de la biblioteca, si la GUI de Calibre está abierta (puede bloquear escrituras), auto_import y dispositivo montado (Kindle/Kobo)."""
+    """Estado de la integración con Calibre: si calibredb está encontrado, ruta de la biblioteca, si la GUI de Calibre está abierta (puede bloquear escrituras) y dispositivo detectado (Kindle/Kobo, por unidad o MTP). Úsala para comprobar que todo está listo antes de un book_download con to_calibre/to_device."""
     return calibre_integration.status()
 
 
@@ -124,31 +137,47 @@ def calibre_add(
     author: str = "",
     language: str = "",
 ) -> dict:
-    """Importa un libro a la biblioteca de Calibre y fija sus metadatos básicos (título, autor, idioma, serie, número de serie, identificador annas:<md5> y portada si se capturó). Usa job_id de un book_download terminado, o path de un archivo local (con title/author/language opcionales si no hay job). Devuelve book_id y si ya existía (duplicated). Requiere Calibre instalado."""
+    """Importa un libro a la biblioteca de Calibre con metadatos limpios (título, autor normalizado, idioma, serie, número de serie e identificador annas:<md5>) y sin crear duplicados. Es la forma de reintentar la etapa Calibre de un book_download que falló en stage=calibre: pasa su job_id. También acepta path de un archivo local (con title/author/language opcionales). Devuelve book_id y duplicated."""
     job = None
     if job_id:
         job = downloader.status(job_id)
         if job is None:
             return {"error": f"job {job_id} no encontrado"}
-        if job.status != "done" or not job.dest:
-            return {"error": f"job {job_id} aún no terminó (status={job.status})"}
+        if not job.dest:
+            return {"error": f"job {job_id} aún no tiene archivo descargado (status={job.status})"}
         file_path = job.dest
     elif path:
         file_path = path
     else:
         return {"error": "Indica job_id (de book_download) o path de un archivo."}
 
+    from .organize import compute_author_sort, compute_title_sort, normalize_author
+
+    raw_author = author or (job.author if job else "")
+    clean_author = normalize_author(raw_author)
+    clean_title = title or (job.title if job else "")
+    lang = language or (job.language if job else "")
     try:
         result = calibre_integration.add_book(
             file_path,
-            title=title or (job.title if job else ""),
-            author=author or (job.author if job else ""),
-            language=language,
+            title=clean_title,
+            author=clean_author,
+            language=lang,
             series=job.series if job else None,
             series_index=job.series_index if job else None,
             identifier_md5=job.md5 if job else "",
-            cover_path=job.cover if job else None,
         )
+        book_id = result.get("book_id")
+        if book_id and not result.get("duplicated"):
+            calibre_integration.set_metadata(
+                book_id,
+                {
+                    "title": clean_title,
+                    "title_sort": compute_title_sort(clean_title, lang),
+                    "authors": clean_author,
+                    "author_sort": compute_author_sort(clean_author),
+                },
+            )
         return result
     except CalibreError as exc:
         return {"error": str(exc)}
@@ -156,8 +185,10 @@ def calibre_add(
 
 @mcp.tool()
 def calibre_send_to_device(book_id: int = 0, path: str = "", format: str = "") -> dict:
-    """Envía un libro al dispositivo conectado (Kindle/Kobo). Por book_id de la biblioteca de Calibre (devuelto por calibre_add) o por path de un archivo local. Convierte al formato destino si hace falta (format opcional; por defecto calibre.device_format, mobi). Devuelve la ruta en el dispositivo. El dispositivo debe estar montado (modo transferencia)."""
+    """Envía un libro al dispositivo conectado (Kindle/Kobo, por unidad o MTP; hay que asegurarse de que esté conectado en modo transferencia). Por book_id de la biblioteca de Calibre (devuelto por calibre_add) o por path de un archivo local. Incrusta los metadatos corregidos y convierte al formato destino si hace falta (format opcional; por defecto calibre.device_format, azw3). Es la forma de reintentar la etapa dispositivo de un book_download que falló en stage=device. Devuelve la ruta en el dispositivo."""
     try:
+        if book_id:
+            calibre_integration.embed_metadata(book_id, "epub")
         return calibre_integration.send_to_device(
             book_id=book_id or None,
             file_path=path or None,

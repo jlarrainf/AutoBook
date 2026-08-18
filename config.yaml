@@ -41,6 +41,5 @@ calibre:
   enabled: true
   library_path: ""                # vacío = autodetectar desde la config de Calibre
   calibredb: ""                   # vacío = autodetectar (C:\Program Files\Calibre2\calibredb.exe o PATH)
-  auto_import: false              # true = importar automáticamente a Calibre tras cada descarga
   device_format: azw3             # formato destino para el dispositivo (azw3, mobi, epub, pdf)
-  device_path: ""                 # vacío = autodetectar Kindle/Kobo montado; si no, ruta manual
+  device_path: ""                 # vacío = autodetectar Kindle/Kobo (unidad o MTP); si no, ruta manual

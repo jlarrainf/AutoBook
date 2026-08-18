@@ -123,6 +123,14 @@ class CalibreIntegration:
 
     # -- estado --
 
+    def available(self) -> bool:
+        return bool(
+            self.cfg.enabled
+            and self.calibredb
+            and self.library
+            and (self.library / "metadata.db").exists()
+        )
+
     def status(self) -> dict:
         device = self.detect_device()
         return {
@@ -131,7 +139,6 @@ class CalibreIntegration:
             "library_path": str(self.library) if self.library else None,
             "library_exists": bool(self.library and (self.library / "metadata.db").exists()),
             "gui_open": is_gui_open(),
-            "auto_import": self.cfg.auto_import,
             "device_format": self.cfg.device_format,
             "device": device,
         }
@@ -284,7 +291,6 @@ class CalibreIntegration:
         series: str | None = None,
         series_index: int | float | None = None,
         identifier_md5: str = "",
-        cover_path: Path | str | None = None,
     ) -> dict:
         self._require()
         file_path = Path(file_path)
@@ -309,8 +315,6 @@ class CalibreIntegration:
             args += ["--series-index", str(series_index)]
         if identifier_md5:
             args += ["--identifier", f"annas:{identifier_md5}"]
-        if cover_path and Path(cover_path).exists():
-            args += ["--cover", str(cover_path)]
         args.append(str(file_path))
 
         prev_max = self._max_book_id()
@@ -334,6 +338,23 @@ class CalibreIntegration:
             return {"book_id": book_id, "duplicated": True, "library": str(self.library)}
         return {"book_id": None, "duplicated": False, "library": str(self.library),
                 "note": "calibredb añadió el libro pero no se pudo determinar el id."}
+
+    def set_metadata(self, book_id: int, fields: dict[str, str]) -> None:
+        """Fija campos (title, authors, languages, series...) recalculando los sort."""
+        self._require()
+        args = ["set_metadata", str(book_id)]
+        for key, value in fields.items():
+            args += ["-f", f"{key}:{value}"]
+        self._run_calibredb(args)
+
+    def embed_metadata(self, book_id: int, fmt: str = "") -> None:
+        """Incrusta los metadatos de la BD en el archivo (necesario antes de
+        convertir/enviar para que el dispositivo vea los metadatos corregidos)."""
+        self._require()
+        args = ["embed_metadata", str(book_id)]
+        if fmt:
+            args += ["--only-format", fmt]
+        self._run_calibredb(args, timeout=600)
 
     # -- dispositivo --
 

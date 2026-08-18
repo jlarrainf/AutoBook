@@ -4,11 +4,10 @@ import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urljoin
 
 from .browser import BrowserSession, NeedsCaptchaError
 from .config import BehaviorConfig, FileConfig
-from .organize import build_destination
+from .organize import build_destination, compute_author_sort, compute_title_sort, normalize_author
 
 
 @dataclass
@@ -20,13 +19,19 @@ class DownloadJob:
     extension: str
     series: str | None = None
     series_index: int | float | None = None
+    language: str = ""
+    to_calibre: bool = False
+    to_device: bool = False
+    device_format: str = ""
     status: str = "queued"
+    stage: str = "download"
     progress: float = 0.0
     dest: str | None = None
     error: str | None = None
-    cover: str | None = None
     calibre_book_id: int | None = None
     calibre_error: str | None = None
+    device_dest: str | None = None
+    device_error: str | None = None
 
 
 class DownloadManager:
@@ -56,7 +61,25 @@ class DownloadManager:
         extension: str,
         series: str | None = None,
         series_index: int | float | None = None,
+        language: str = "",
+        to_calibre: bool = False,
+        to_device: bool = False,
+        device_format: str = "",
     ) -> DownloadJob:
+        """Valida los destinos pedidos (fail-fast) y lanza el pipeline completo:
+        descarga -> Calibre -> dispositivo. Lanza ValueError si falta algo."""
+        if to_calibre or to_device:
+            if self._calibre is None or not self._calibre.available():
+                raise ValueError(
+                    "Calibre no detectado (calibredb o biblioteca). Instala Calibre, "
+                    "define calibre.library_path/CALIBRE_LIBRARY, o usa to_calibre=false y to_device=false."
+                )
+        if to_device:
+            if self._calibre.detect_device() is None:
+                raise ValueError(
+                    "No se detectó ningún dispositivo (Kindle/Kobo). Conéctalo por USB "
+                    "(modo transferencia) y reintenta, o usa to_device=false."
+                )
         job = DownloadJob(
             job_id=uuid.uuid4().hex[:10],
             md5=md5,
@@ -65,6 +88,10 @@ class DownloadManager:
             extension=extension,
             series=series,
             series_index=series_index,
+            language=language,
+            to_calibre=to_calibre,
+            to_device=to_device,
+            device_format=device_format,
         )
         with self._lock:
             self._jobs[job.job_id] = job
@@ -91,11 +118,11 @@ class DownloadManager:
                 return
             except Exception as exc:
                 errors.append(f"{mirror}: {exc}")
-                self._set(job, status="error", error=" | ".join(errors))
+                self._set(job, status="error", stage="download", error=" | ".join(errors))
 
     def _run_with_mirror(self, mirror: str, job: DownloadJob) -> None:
-        self._set(job, status="downloading", progress=0.05)
-        href, cover_url = self._browser.get_slow_download_href(
+        self._set(job, status="downloading", stage="download", progress=0.05)
+        href = self._browser.get_slow_download_href(
             f"{mirror}/md5/{job.md5}",
             challenge_timeout_s=self._behavior_cfg.challenge_timeout_s,
         )
@@ -103,16 +130,11 @@ class DownloadManager:
             raise RuntimeError("enlace slow_download no encontrado en la página del md5")
         if not href.startswith("http"):
             href = mirror + href
-        if cover_url and not cover_url.startswith("http"):
-            cover_url = urljoin(mirror + "/", cover_url)
-        cover = self._download_cover(cover_url, job.md5)
-        if cover:
-            self._set(job, cover=cover)
 
         dest = build_destination(
             self._download_dir,
             job.title,
-            job.author,
+            normalize_author(job.author),
             job.extension,
             overwrite=self._file_cfg.overwrite,
             series=job.series,
@@ -121,42 +143,56 @@ class DownloadManager:
         self._set(job, progress=0.3)
 
         self._browser.run_download(href, str(dest), timeout_ms=self._browser._cfg.timeout_ms)
-        self._set(job, status="done", progress=1.0, dest=str(dest))
-        self._auto_import(job, dest)
+        self._set(job, dest=str(dest), progress=1.0)
+        self._pipeline(job)
 
-    def _download_cover(self, url: str, md5: str) -> str | None:
-        if not url:
-            return None
-        try:
-            from curl_cffi import requests as cffi_requests
-
-            resp = cffi_requests.get(url, impersonate="chrome", timeout=30)
-            if resp.status_code != 200 or not resp.content:
-                return None
-            ctype = (resp.headers.get("content-type") or "").lower()
-            ext = ".png" if "png" in ctype else ".webp" if "webp" in ctype else ".jpg"
-            covers_dir = self._download_dir / ".covers"
-            covers_dir.mkdir(parents=True, exist_ok=True)
-            dest = covers_dir / f"{md5}{ext}"
-            dest.write_bytes(resp.content)
-            return str(dest)
-        except Exception:
-            return None
-
-    def _auto_import(self, job: DownloadJob, dest: Path) -> None:
-        cal = self._calibre
-        if cal is None or not cal.cfg.enabled or not cal.cfg.auto_import:
-            return
-        try:
-            result = cal.add_book(
-                dest,
-                title=job.title,
-                author=job.author,
-                series=job.series,
-                series_index=job.series_index,
-                identifier_md5=job.md5,
-                cover_path=job.cover,
-            )
-            self._set(job, calibre_book_id=result.get("book_id"))
-        except Exception as exc:
-            self._set(job, calibre_error=str(exc))
+    def _pipeline(self, job: DownloadJob) -> None:
+        """Etapas posteriores a la descarga: Calibre y/o dispositivo."""
+        if job.to_calibre:
+            self._set(job, status="importing", stage="calibre")
+            try:
+                author = normalize_author(job.author)
+                result = self._calibre.add_book(
+                    job.dest,
+                    title=job.title,
+                    author=author,
+                    language=job.language,
+                    series=job.series,
+                    series_index=job.series_index,
+                    identifier_md5=job.md5,
+                )
+                book_id = result.get("book_id")
+                self._set(job, calibre_book_id=book_id)
+                if book_id and not result.get("duplicated"):
+                    # calibredb no recalcula los sort: se fijan explícitamente.
+                    self._calibre.set_metadata(
+                        book_id,
+                        {
+                            "title": job.title,
+                            "title_sort": compute_title_sort(job.title, job.language),
+                            "authors": author,
+                            "author_sort": compute_author_sort(author),
+                        },
+                    )
+            except Exception as exc:
+                self._set(job, status="error", stage="calibre",
+                          calibre_error=str(exc), error=f"calibre: {exc}")
+                return
+        if job.to_device:
+            self._set(job, status="sending", stage="device")
+            try:
+                if job.calibre_book_id:
+                    self._calibre.embed_metadata(job.calibre_book_id, "epub")
+                    result = self._calibre.send_to_device(
+                        book_id=job.calibre_book_id, fmt=job.device_format
+                    )
+                else:
+                    result = self._calibre.send_to_device(
+                        file_path=job.dest, fmt=job.device_format
+                    )
+                self._set(job, device_dest=result.get("dest"))
+            except Exception as exc:
+                self._set(job, status="error", stage="device",
+                          device_error=str(exc), error=f"dispositivo: {exc}")
+                return
+        self._set(job, status="done", stage="done")

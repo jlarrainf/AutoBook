@@ -1,46 +1,69 @@
 # Integración con Calibre y envío al dispositivo
 
-AutoBook puede importar los libros descargados a tu biblioteca de Calibre, y enviarlos a tu Kindle/Kobo cuando está conectado. Usa `calibredb` y `ebook-convert` (vienen con Calibre); **no necesita ningún MCP adicional**.
+AutoBook importa los libros descargados a tu biblioteca de Calibre y los envía a tu Kindle/Kobo cuando está conectado, todo en **un solo pipeline estructurado**. Usa `calibredb` y `ebook-convert` (vienen con Calibre); **no necesita ningún MCP adicional**.
 
 ## Requisitos
 
 - [Calibre](https://calibre-ebook.com/) instalado (auto-detecta `calibredb.exe` y la biblioteca desde la config de Calibre).
-- Para enviar al dispositivo: el lector conectado por USB en **modo transferencia de archivos** (montado como unidad).
+- Para enviar al dispositivo: el lector conectado por USB (modo transferencia; funciona también si aparece como dispositivo portátil MTP en "Este equipo", sin letra de unidad).
+
+## El pipeline (flujo principal)
+
+Un solo llamado hace todo, con validación **fail-fast** antes de empezar:
+
+```
+book_search → book_download(md5, ..., to_calibre=true, to_device=true) → get_download_status (polling)
+```
+
+Etapas del job: `download → calibre → device`:
+
+1. **download**: descarga el libro (y la portada ya viene dentro del archivo).
+2. **calibre**: importa con `calibredb` fijando título, autor **normalizado** ("Tolkien, J.R.R." → "J. R. R. Tolkien"; "Autor; Distribuidor" → solo el autor), idioma, serie, índice e identificador `annas:<md5>`. Nunca crea duplicados (detecta por identificador o título/autor). Corrige `title_sort`/`author_sort` automáticamente.
+3. **device**: incrusta los metadatos corregidos en el EPUB, convierte al formato destino (por defecto AZW3) y copia al dispositivo (unidad o MTP, a `documents/` en Kindle).
+
+Validación previa: si `to_calibre=true` y Calibre no está detectado, o `to_device=true` y no hay dispositivo, `book_download` devuelve error **de inmediato** (no se pierde tiempo descargando).
+
+### Estados (`get_download_status`)
+
+| status | stage | Significado |
+| :--- | :--- | :--- |
+| `queued` / `downloading` | `download` | Descarga en curso (puede tardar minutos; cola por IP). |
+| `importing` | `calibre` | Importando a Calibre. |
+| `sending` | `device` | Convirtiendo y enviando al dispositivo. |
+| `done` | `done` | Todo listo: `dest`, `calibre_book_id`, `device_dest`. |
+| `waiting_captcha` | — | Resolver el CAPTCHA en la ventana del navegador. |
+| `error` | `download` / `calibre` / `device` | Falló ESA etapa; mira `error`, `calibre_error` o `device_error`. Las etapas previas completadas se conservan. |
+
+**Reintento por etapa** (sin repetir lo que ya funcionó):
+
+- Falló `stage=calibre` → `calibre_add(job_id=…)`.
+- Falló `stage=device` → `calibre_send_to_device(book_id=…)` (con el dispositivo ya conectado).
 
 ## Tools
 
 | Tool | Qué hace |
 | :--- | :--- |
-| `calibre_status()` | Estado: calibredb encontrado, ruta de la biblioteca, GUI de Calibre abierta, dispositivo montado. |
-| `calibre_add(job_id \| path)` | Importa a la biblioteca un libro descargado (por `job_id` de `book_download`) o un archivo local. Fija título, autor, idioma, serie, número de serie, identificador `annas:<md5>` y portada (capturada de la página del libro). Devuelve `book_id` y `duplicated`. |
-| `calibre_send_to_device(book_id \| path, format?)` | Envía el libro al dispositivo montado (unidad o MTP). Convierte al formato destino si hace falta (por defecto AZW3). Devuelve la ruta en el dispositivo. |
+| `calibre_status()` | Estado: calibredb encontrado, biblioteca, GUI de Calibre abierta, dispositivo detectado. |
+| `calibre_add(job_id \| path)` | Importa a la biblioteca un libro descargado o un archivo local, con metadatos limpios. Devuelve `book_id` y `duplicated`. |
+| `calibre_send_to_device(book_id \| path, format?)` | Envía al dispositivo (unidad o MTP), incrusta metadatos y convierte si hace falta (por defecto AZW3). Devuelve la ruta en el dispositivo. |
 
-## Flujo completo (prompt)
+## Prompt de ejemplo
 
-> Descarga "Pedro Páramo" en español epub, añádelo a mi biblioteca de Calibre, revisa y arregla sus metadatos si hace falta, y mándalo a mi Kindle.
+> Descarga "El Señor de los Anillos" en inglés, los tres libros como serie, y mándalos a mi Kindle.
 
-La IA hará:
-
-1. `book_search` → `book_download` → `get_download_status` (esperar a `done`).
-2. `calibre_add(job_id=…)` → obtiene `book_id`.
-3. Revisar metadatos (con el MCP de calibre si está instalado): `calibre_get_book_details(book_id)`; si el autor trae basura (p. ej. "Juan Rulfo; OverDrive, Inc"), `calibre_set_book_metadata(book_id, authors="Rulfo, Juan")` y `calibre_fix_book_paths(book_ids=[…])`.
-4. `calibre_send_to_device(book_id=…)` → convierte a MOBI y copia a `documents/` en el Kindle.
+La IA: busca → `book_download(..., series="The Lord of the Rings", series_index=N, to_calibre=true, to_device=true)` por volumen (uno a la vez) → polling → resultado. Si el Kindle no está conectado, el error sale al instante y puede reintentar el envío después con `calibre_send_to_device`.
 
 ## Arreglo profundo de metadatos (opcional, con el MCP de calibre)
 
-AutoBook fija los metadatos **básicos** al importar (los que vienen de Anna's Archive). Para enriquecer (portada si falta, editorial, sinopsis, corregir autores/series) usa las tools del MCP de calibre si lo tienes instalado:
+AutoBook ya limpia lo básico al importar (autor, título, sorts, idioma, serie). Para enriquecer más (editorial, sinopsis, etc.) usa las tools del MCP de calibre si lo tienes instalado:
 
 - `calibre_get_book_details(book_id)` — ver qué falta.
 - `calibre_fetch_metadata(book_ids=[…], source="openlibrary", apply=true, dry_run=false)` — buscar en OpenLibrary/Google Books y aplicar.
 - `calibre_set_book_metadata` / `calibre_bulk_set_metadata` — correcciones manuales.
-- `calibre_embed_metadata(book_ids=[…])` — incrustar los metadatos en el archivo (recomendado antes de enviar al dispositivo).
+- `calibre_embed_metadata(book_ids=[…])` — incrustar metadatos en el archivo.
 - `calibre_find_missing_metadata()` — auditar la biblioteca entera.
 
-Sin el MCP de calibre también puedes pedirle a la IA que use `calibredb set_metadata` directamente, o arreglarlo en la GUI de Calibre.
-
-## Duplicados
-
-- `calibre_add` nunca crea duplicados: usa `--automerge=ignore` y detecta libros existentes por identificador `annas:<md5>` o por título/autor. Si ya existe, devuelve el `book_id` existente con `duplicated: true`.
+Sin el MCP de calibre: pídele a la IA que use `calibredb set_metadata`, o arréglalo en la GUI de Calibre.
 
 ## Configuración (`config.yaml` / `.env`)
 
@@ -49,12 +72,11 @@ calibre:
   enabled: true
   library_path: ""       # vacío = autodetectar
   calibredb: ""          # vacío = autodetectar
-  auto_import: false     # true = importar solo, tras cada descarga
   device_format: azw3    # azw3, mobi, epub, pdf
-  device_path: ""        # vacío = autodetectar Kindle/Kobo montado
+  device_path: ""        # vacío = autodetectar Kindle/Kobo
 ```
 
-Overrides en `.env`: `CALIBRE_LIBRARY`, `CALIBRE_DB`, `CALIBRE_AUTO_IMPORT`, `DEVICE_FORMAT`, `DEVICE_PATH`.
+Overrides en `.env`: `CALIBRE_LIBRARY`, `CALIBRE_DB`, `DEVICE_FORMAT`, `DEVICE_PATH`.
 
 ## Detección de dispositivos
 
@@ -66,6 +88,6 @@ Overrides en `.env`: `CALIBRE_LIBRARY`, `CALIBRE_DB`, `CALIBRE_AUTO_IMPORT`, `DE
 ## Notas y solución de problemas
 
 - **GUI de Calibre abierta**: `calibredb` normalmente funciona igual, pero si la base de datos está bloqueada, cierra la GUI y reintenta. Tras importar con la GUI abierta, puede que necesites refrescarla (F5) para ver el libro.
-- **Portada**: se captura de la página del md5 durante la descarga (se guarda en `downloads/.covers/`). Si el EPUB ya trae portada incrustada, Calibre usa esa.
 - **Expulsar el dispositivo**: usa "Expulsar de forma segura" antes de desconectar el Kindle.
 - **Formato para Kindle**: por defecto AZW3 (buena tipografía, todos los Kindle modernos). `device_format: mobi` para Kindles muy viejos.
+- **Duplicados**: `calibre_add` usa `--automerge=ignore` y detecta existentes por identificador `annas:<md5>` o título/autor; si ya existe devuelve el `book_id` existente con `duplicated: true`.

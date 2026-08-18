@@ -11,7 +11,8 @@ El proyecto ya incluye `opencode.json` con el registro:
   "mcp": {
     "autobook": {
       "type": "local",
-      "command": [".venv\\Scripts\\python.exe", "-m", "autobook.server"]
+      "command": [".venv\\Scripts\\python.exe", "-m", "autobook.server"],
+      "timeout": 300000
     }
   }
 }
@@ -45,6 +46,12 @@ Después de guardar `opencode.json`, reinicia opencode para que cargue el servid
 **Búsqueda + descarga en un paso:**
 > "Descarga 'Cien años de soledad' de Gabriel García Márquez en epub y en español. Búscalo, elige el resultado correcto, descárgalo y dime dónde quedó guardado."
 
+**Pipeline completo (descarga + Calibre + Kindle):**
+> "Descarga 'La ciudad de las bestias' de Isabel Allende en español epub, añádelo a mi biblioteca de Calibre y mándalo a mi Kindle."
+
+**Serie completa a Calibre/Kindle:**
+> "Descarga la serie X en inglés epub, un volumen a la vez como serie con su índice, importando cada uno a Calibre y enviándolo a mi Kindle."
+
 **Control explícito de idioma y formato:**
 > "Busca 'La sombra del viento' en formato PDF, idioma español. Prefiero una edición reciente. Descarga la mejor opción y guárdala."
 
@@ -61,13 +68,14 @@ Después de guardar `opencode.json`, reinicia opencode para que cargue el servid
 
 `book_download` devuelve `job_id` inmediatamente. La IA debe llamar `get_download_status(job_id)` en bucle hasta ver `status: done` o `error`. Estados:
 
-| status | Qué significa |
-| :--- | :--- |
-| `queued` | Esperando que el hilo arranque. |
-| `downloading` | Descargando (puede tardar minutos; hay cola por IP). |
-| `waiting_captcha` | DDoS-Guard no se autoverificó y pide verificación humana. |
-| `done` | Listo; `dest` tiene la ruta del archivo. |
-| `error` | Falló en todos los mirrors; `error` tiene el detalle. |
+| status | stage | Qué significa |
+| :--- | :--- | :--- |
+| `queued` / `downloading` | `download` | Descargando (puede tardar minutos; hay cola por IP). |
+| `importing` | `calibre` | Importando a la biblioteca de Calibre. |
+| `sending` | `device` | Convirtiendo y enviando al Kindle/Kobo. |
+| `waiting_captcha` | — | DDoS-Guard pide verificación humana en la ventana del navegador. |
+| `done` | `done` | Listo; `dest`, `calibre_book_id` y `device_dest` según las etapas pedidas. |
+| `error` | `download` / `calibre` / `device` | Falló esa etapa. Reintentar solo ella: `calibre_add(job_id)` si fue `calibre`, `calibre_send_to_device(book_id)` si fue `device`. |
 
 ## 6. Buenas prácticas
 

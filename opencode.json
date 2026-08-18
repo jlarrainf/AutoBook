@@ -3,7 +3,8 @@
   "mcp": {
     "autobook": {
       "type": "local",
-      "command": [".venv\\Scripts\\python.exe", "-m", "autobook.server"]
+      "command": [".venv\\Scripts\\python.exe", "-m", "autobook.server"],
+      "timeout": 300000
     }
   }
 }

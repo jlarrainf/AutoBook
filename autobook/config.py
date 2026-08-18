@@ -37,8 +37,7 @@ class CalibreConfig:
     enabled: bool = True
     library_path: str = ""
     calibredb: str = ""
-    auto_import: bool = False
-    device_format: str = "mobi"
+    device_format: str = "azw3"
     device_path: str = ""
 
 
@@ -101,9 +100,6 @@ class Config:
         cal_db = os.getenv("CALIBRE_DB")
         if cal_db:
             self.calibre.calibredb = cal_db
-        auto_imp = os.getenv("CALIBRE_AUTO_IMPORT")
-        if auto_imp is not None:
-            self.calibre.auto_import = auto_imp.lower() in ("1", "true", "yes")
         dev_fmt = os.getenv("DEVICE_FORMAT")
         if dev_fmt:
             self.calibre.device_format = dev_fmt
