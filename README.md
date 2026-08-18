@@ -30,9 +30,9 @@ Tú (opencode / Claude Code) ──► IA ──► MCP tools ──► autobook
 
 ---
 
-## Instalación fácil en otra PC — Claude Code (app de escritorio)
+## Instalación fácil en otra PC — Claude Code (app de escritorio) o opencode
 
-La forma más rápida: **descargar, abrir la app en la carpeta y pegar un prompt**. La propia IA instala, configura y verifica todo.
+La forma más rápida: **descargar, abrir la IA en la carpeta y pegar un prompt**. La propia IA instala, configura y verifica todo. El mismo venv sirve para Claude Code **y** para opencode: si instalas para uno, el otro también queda listo.
 
 ### Paso 1 — Consigue el proyecto
 
@@ -68,6 +68,8 @@ Estás en la carpeta del proyecto AutoBook. Instálalo y regístralo como servid
 7. Cuando la IA confirme el reinicio, acepta la aprobación de las tools MCP que pida la app y prueba con: "Usa la tool book_search para buscar 'El Principito' en español, formato epub, y descárgalo esperando a que termine."
 ```
 
+> **¿Usas opencode en vez de Claude Code? No necesitas pegar nada extra.** El prompt de arriba crea el venv (lo único que falta); el registro del MCP ya viene en `opencode.json` del proyecto. Abre opencode dentro de la carpeta `AutoBook`, reinícialo si hace falta y ejecuta `/mcp` para confirmar que `autobook` está conectado. Si ya instalaste con Claude Code, opencode también queda listo (comparten el mismo venv).
+
 ### Paso 3 — Verificar (opcional)
 
 En la app, ejecuta `/mcp` (o revisa el menú de herramientas MCP): debe aparecer `autobook` conectado.
@@ -89,13 +91,38 @@ Luego cierra del todo la app de Claude Code y vuelve a abrirla en esa carpeta.
 
 ---
 
-## Instalación con opencode
+## ¿Desde cualquier carpeta o solo dentro del proyecto?
 
-1. Descarga el proyecto y descomprime.
-2. **Doble clic en `install.bat`** (o el comando manual de abajo).
-3. Abre opencode en la carpeta de AutoBook. El MCP ya viene registrado en `opencode.json`; **reinicia opencode** y ejecuta `/mcp` para confirmar que `autobook` está conectado.
+Depende de **dónde registres** el MCP, no del servidor en sí (autobook funciona igual desde cualquier carpeta: resuelve sus rutas contra su propia carpeta; los libros van a `<AutoBook>\downloads` salvo que lo cambies con `set_download_dir`).
 
-> En **`docs/instalacion-ai.md`** hay prompts listos para que la propia IA haga la instalación tanto en opencode como en Claude Code (terminal o app de escritorio), paso a paso y sin que la persona tenga que tocar JSON.
+- **Solo en la carpeta de AutoBook** (configuración por proyecto, la recomendada para empezar): el MCP se carga solo cuando abres Claude Code u opencode **dentro** de la carpeta `AutoBook`. Es lo que hacen los pasos de arriba (`.mcp.json` para Claude Code, `opencode.json` para opencode).
+- **Desde cualquier carpeta** (registro global/usuario): el MCP queda disponible aunque abras la IA en cualquier otro proyecto. Es lo mismo, pero registrado a nivel global con **ruta absoluta**.
+
+### Registrarlo global (desde cualquier carpeta)
+
+**Claude Code** — una sola línea (desde la carpeta de AutoBook):
+
+```powershell
+claude mcp add autobook --scope user -- "C:\ruta\absoluta\a\AutoBook\.venv\Scripts\python.exe" -m autobook.server
+```
+
+**opencode** — edita el archivo global `%USERPROFILE%\.config\opencode\opencode.json` y añade el bloque `mcp` (con la **ruta absoluta** del python del venv):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "autobook": {
+      "type": "local",
+      "command": ["C:\\ruta\\absoluta\\a\\AutoBook\\.venv\\Scripts\\python.exe", "-m", "autobook.server"]
+    }
+  }
+}
+```
+
+Luego **reinicia** Claude Code u opencode. Nota: si abres la IA fuera de la carpeta de AutoBook, `install.bat` no es necesario (el venv vive dentro de AutoBook), pero la primera vez hay que haber creado el venv.
+
+---
 
 ## Instalación manual (cualquier herramienta)
 
