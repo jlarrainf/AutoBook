@@ -40,33 +40,33 @@ Descarga el ZIP desde el repo en GitHub (botón verde **Code → Download ZIP**)
 
 ### Paso 2 — Abre Claude Code en la carpeta y pega este prompt
 
-Abre la **app de escritorio de Claude Code**, selecciona la carpeta `AutoBook` como proyecto y pega:
+Abre la **app de escritorio de Claude Code**, selecciona la carpeta `AutoBook` como proyecto y pega el bloque completo de abajo (cópialo tal cual):
 
-> Estás en la carpeta del proyecto AutoBook. Instálalo y regístralo como servidor MCP local (stdio) para Claude Code. Haz exactamente esto:
->
-> 1. Si no existe la carpeta `.venv`, crea el entorno virtual e instala las dependencias:
->    - `python -m venv .venv`
->    - `.venv\Scripts\python.exe -m pip install -r requirements.txt`
-> 2. Comprueba que el servidor arranca:
->    - `.venv\Scripts\python.exe -c "import autobook.server; print('OK')"`
-> 3. Obtén la ruta **absoluta** del python del venv y escríbela con doble backslash `\\`. Puedes sacarla con PowerShell: `(Resolve-Path .venv\Scripts\python.exe).Path`.
-> 4. Crea el archivo `.mcp.json` en la raíz (si no existe) con este contenido, reemplazando `C:\RUTA\ABSOLUTA\A\AutoBook` por la ruta real:
->
->    ```json
->    {
->      "mcpServers": {
->        "autobook": {
->          "type": "stdio",
->          "command": "C:\\RUTA\\ABSOLUTA\\A\\AutoBook\\.venv\\Scripts\\python.exe",
->          "args": ["-m", "autobook.server"]
->        }
->      }
->    }
->    ```
->
-> 5. Verifica que el JSON es válido y que `.mcp.json` está en la raíz.
-> 6. Dime que **cierre por completo** la app (icono de la bandeja del sistema → Quit; no basta cerrar la ventana) y la abra de nuevo en esta carpeta.
-> 7. Cuando la IA confirme el reinicio, acepta la aprobación de las tools MCP que pida la app y prueba con: *"Usa la tool book_search para buscar 'El Principito' en español, formato epub, y descárgalo esperando a que termine."*
+```text
+Estás en la carpeta del proyecto AutoBook. Instálalo y regístralo como servidor MCP local (stdio) para Claude Code. Haz exactamente esto:
+
+1. Si no existe la carpeta .venv, crea el entorno virtual e instala las dependencias:
+   - python -m venv .venv
+   - .venv\Scripts\python.exe -m pip install -r requirements.txt
+2. Comprueba que el servidor arranca:
+   - .venv\Scripts\python.exe -c "import autobook.server; print('OK')"
+3. Obtén la ruta absoluta del python del venv y escríbela con doble backslash (\\). Puedes sacarla con PowerShell: (Resolve-Path .venv\Scripts\python.exe).Path
+4. Crea el archivo .mcp.json en la raíz (si no existe) con este contenido, reemplazando C:\RUTA\ABSOLUTA\A\AutoBook por la ruta real:
+
+   {
+     "mcpServers": {
+       "autobook": {
+         "type": "stdio",
+         "command": "C:\\RUTA\\ABSOLUTA\\A\\AutoBook\\.venv\\Scripts\\python.exe",
+         "args": ["-m", "autobook.server"]
+       }
+     }
+   }
+
+5. Verifica que el JSON es válido y que .mcp.json está en la raíz.
+6. Dime que cierre por completo la app (icono de la bandeja del sistema → Quit; no basta cerrar la ventana) y la abra de nuevo en esta carpeta.
+7. Cuando la IA confirme el reinicio, acepta la aprobación de las tools MCP que pida la app y prueba con: "Usa la tool book_search para buscar 'El Principito' en español, formato epub, y descárgalo esperando a que termine."
+```
 
 ### Paso 3 — Verificar (opcional)
 
