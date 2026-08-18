@@ -23,11 +23,13 @@ Si ya ejecutaste `install.bat`, puedes saltarte los pasos 1–2 de cada prompt (
 
 1. **Descarga y descomprime** el proyecto (zip del release, o `git clone …`). Queda una carpeta `AutoBook`.
 2. **Doble clic en `install.bat`** dentro de la carpeta. Crea el entorno virtual, instala dependencias y comprueba que el servidor arranca.
-3. Abre **Claude Code** o **opencode** *dentro de esa carpeta* y pega el prompt correspondiente (abajo).
+3. Abre **Claude Code** (terminal o **app de escritorio**, abriendo la carpeta como proyecto) u **opencode** *dentro de esa carpeta* y pega el prompt correspondiente (abajo).
+
+> Si usas la **app de escritorio de Claude Code**, usa el prompt de la sección de abajo: crea `.mcp.json` en la raíz y al final hay que **cerrar la app por completo** (bandeja del sistema → Quit) y abrirla de nuevo. Recuerda: Claude Code lee `.mcp.json`; la app de chat **Claude Desktop** no sirve para esto (usa otro archivo de configuración).
 
 ---
 
-## Prompt para Claude Code
+## Prompt para Claude Code (terminal o app de escritorio)
 
 Abre Claude Code en la carpeta de AutoBook (terminal → `cd C:\ruta\a\AutoBook` → `claude`) y pega esto:
 
