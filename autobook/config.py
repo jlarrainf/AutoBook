@@ -33,6 +33,16 @@ class FileConfig:
 
 
 @dataclass
+class CalibreConfig:
+    enabled: bool = True
+    library_path: str = ""
+    calibredb: str = ""
+    auto_import: bool = False
+    device_format: str = "mobi"
+    device_path: str = ""
+
+
+@dataclass
 class Config:
     mirrors: list[str] = field(default_factory=list)
     default_language: str = "es"
@@ -41,6 +51,7 @@ class Config:
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     files: FileConfig = field(default_factory=FileConfig)
+    calibre: CalibreConfig = field(default_factory=CalibreConfig)
 
     @classmethod
     def load(cls, base_dir: Path | None = None) -> "Config":
@@ -59,6 +70,7 @@ class Config:
             browser=BrowserConfig(**raw.get("browser", {})),
             behavior=BehaviorConfig(**raw.get("behavior", {})),
             files=FileConfig(**raw.get("files", {})),
+            calibre=CalibreConfig(**raw.get("calibre", {})),
         )
         cfg._apply_env(base_dir)
         return cfg
@@ -82,6 +94,22 @@ class Config:
         binary = os.getenv("BROWSER_BINARY")
         if binary:
             self.browser.binary = binary
+
+        cal_lib = os.getenv("CALIBRE_LIBRARY")
+        if cal_lib:
+            self.calibre.library_path = cal_lib
+        cal_db = os.getenv("CALIBRE_DB")
+        if cal_db:
+            self.calibre.calibredb = cal_db
+        auto_imp = os.getenv("CALIBRE_AUTO_IMPORT")
+        if auto_imp is not None:
+            self.calibre.auto_import = auto_imp.lower() in ("1", "true", "yes")
+        dev_fmt = os.getenv("DEVICE_FORMAT")
+        if dev_fmt:
+            self.calibre.device_format = dev_fmt
+        dev_path = os.getenv("DEVICE_PATH")
+        if dev_path:
+            self.calibre.device_path = dev_path
 
         if not self.download_dir.is_absolute():
             self.download_dir = (base_dir / self.download_dir).resolve()

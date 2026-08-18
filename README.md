@@ -4,6 +4,8 @@ Agente de descarga de libros desde **Anna's Archive** controlado por IA a travé
 
 Funciona por la vía **gratuita** (`slow download`), sin donación ni API key. Usa una ventana de **Chrome real** (tu navegador, lanzado con debugging remoto y un perfil dedicado) para superar automáticamente la protección **DDoS-Guard** sin captchas. El tool **nunca cierra tu navegador**: tu Chrome/Edge normal queda intacto.
 
+Opcionalmente se integra con **Calibre**: importa el libro descargado a tu biblioteca (con metadatos y portada), y lo envía a tu **Kindle/Kobo** cuando está conectado (convirtiendo el formato si hace falta). Ver [docs/calibre.md](docs/calibre.md).
+
 > **Nota legal**: Anna's Archive indexa obras con derechos de autor. Usa esta herramienta solo con obras de dominio público, licencias abiertas (Creative Commons, etc.) o material que tengas derecho a descargar.
 
 ## Cómo funciona
@@ -18,8 +20,9 @@ Tú (opencode / Claude Code) ──► IA ──► MCP tools ──► autobook
 ```
 
 - **Búsqueda**: primero HTTP directo con `curl_cffi` (impersona Chrome). Como DDoS-Guard lo bloquea, cae a una pestaña del navegador real, que se verifica solo (~7 s) y devuelve el HTML.
-- **Descarga**: sigue el enlace `/slow_download/…` en el navegador real, hace clic en "Download now" del partner y captura el archivo.
+- **Descarga**: sigue el enlace `/slow_download/…` en el navegador real, hace clic en "Download now" del partner y captura el archivo. También captura la portada de la ficha del libro.
 - **Organización**: por defecto `downloads/<Autor>/<Título>.<ext>`; si indicas `series` (opcionalmente `series_index`) guarda `downloads/<Serie>/Book NN - <Título>.<ext>` con nombres coherentes para todos los volúmenes.
+- **Calibre (opcional)**: `calibre_add` importa el libro a la biblioteca con `calibredb` (metadatos + portada + identificador, sin duplicados) y `calibre_send_to_device` lo convierte y copia al Kindle/Kobo montado.
 
 ## Requisitos
 
@@ -27,6 +30,7 @@ Tú (opencode / Claude Code) ──► IA ──► MCP tools ──► autobook
 - Python 3.10+ ([python.org](https://www.python.org/downloads/), marcar **"Add python.exe to PATH"**)
 - **Google Chrome** (por defecto) o **Microsoft Edge** como respaldo (auto-detectados).
 - [Claude Code](https://claude.com/claude-code) (terminal o **app de escritorio**) **o** [opencode](https://opencode.ai).
+- Opcional para la integración con biblioteca/dispositivo: [Calibre](https://calibre-ebook.com/) instalado.
 
 ---
 
@@ -165,11 +169,14 @@ No hace falta `playwright install` ni descargar navegadores: se usa el Chrome/Ed
 | Tool | Descripción |
 | :--- | :--- |
 | `book_search(query, language, format, limit)` | Busca y devuelve resultados con título, autor, idioma, formato, tamaño y **md5**. |
-| `book_download(md5, title, author, extension, series, series_index)` | Inicia la descarga en segundo plano; devuelve `job_id`. Con `series` (y `series_index`) guarda con nombres coherentes por volumen. |
-| `get_download_status(job_id)` | Consulta progreso/estado (`queued` / `downloading` / `waiting_captcha` / `done` / `error`). |
+| `book_download(md5, title, author, extension, series, series_index)` | Inicia la descarga en segundo plano; devuelve `job_id`. Con `series` (y `series_index`) guarda con nombres coherentes por volumen. Captura la portada. |
+| `get_download_status(job_id)` | Consulta progreso/estado (`queued` / `downloading` / `waiting_captcha` / `done` / `error`), portada y resultado de auto-import a Calibre. |
 | `set_download_dir(path)` | Cambia la carpeta de descargas en caliente. |
 | `check_mirrors()` | Comprueba qué mirrors están vivos. |
 | `session_info()` | Estado del navegador y carpeta de descargas. |
+| `calibre_status()` | Estado de la integración: calibredb, biblioteca, GUI abierta, dispositivo montado. |
+| `calibre_add(job_id \| path)` | Importa el libro a la biblioteca de Calibre con metadatos/portada; devuelve `book_id` (ver [docs/calibre.md](docs/calibre.md)). |
+| `calibre_send_to_device(book_id \| path, format?)` | Envía el libro al Kindle/Kobo montado, convirtiendo si hace falta (por defecto MOBI). |
 
 ## Estructura del proyecto
 
@@ -184,6 +191,7 @@ AutoBook/
 ├── LICENSE                  # MIT
 ├── docs/
 │   ├── instalacion-ai.md    # ★ prompts listos para que la IA instale el proyecto
+│   ├── calibre.md           # integración con Calibre y envío a Kindle/Kobo
 │   ├── arquitectura.md      # componentes y flujo de datos
 │   ├── anti-bot.md          # estrategia anti-detección (DDoS-Guard + Chrome/CDP)
 │   └── uso-opencode.md      # prompts de ejemplo y buenas prácticas
@@ -192,8 +200,9 @@ AutoBook/
     ├── mirrors.py           # rotación y health check de mirrors
     ├── search.py            # búsqueda con curl_cffi + Chrome/CDP + parseo
     ├── browser.py           # BrowserSession: lanza Chrome/Edge real (CDP) y lo conduce por Playwright
-    ├── downloader.py        # slow_download + jobs en segundo plano
+    ├── downloader.py        # slow_download + jobs en segundo plano + portada + auto-import
     ├── organize.py          # saneado de nombres y rutas
+    ├── calibre.py           # calibredb/ebook-convert: importar a biblioteca y enviar al dispositivo
     └── server.py            # FastMCP: expone las tools
 ```
 

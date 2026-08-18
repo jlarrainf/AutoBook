@@ -196,22 +196,35 @@ class BrowserSession:
         finally:
             await page.close()
 
-    def get_slow_download_href(self, md5_url: str, challenge_timeout_s: float = 120.0) -> str:
+    def get_slow_download_href(self, md5_url: str, challenge_timeout_s: float = 120.0) -> tuple[str, str]:
+        """Devuelve (href de slow_download, url de la portada) de la página del md5."""
         self._ensure_started()
         return self._run_on_loop(self._get_slow_download_href(md5_url, challenge_timeout_s))
 
-    async def _get_slow_download_href(self, md5_url: str, timeout_s: float) -> str:
+    async def _get_slow_download_href(self, md5_url: str, timeout_s: float) -> tuple[str, str]:
         page = await self._context.new_page()
         try:
             await page.goto(md5_url, wait_until="domcontentloaded", timeout=60000)
             await self._wait_ready(page, timeout_s)
+            cover_url = ""
+            try:
+                cover_url = await page.evaluate(
+                    "() => {"
+                    "const m = document.querySelector('meta[property=\"og:image\"]');"
+                    "if (m && m.content) return m.content;"
+                    "const img = document.querySelector('img.md5-cover, img[class*=\"cover\"]');"
+                    "return img ? (img.currentSrc || img.src) : '';"
+                    "}"
+                ) or ""
+            except Exception:
+                pass
             loc = page.locator(SLOW_DOWNLOAD_SELECTOR).first
             try:
                 await loc.wait_for(timeout=30000)
             except Exception:
-                return ""
+                return "", cover_url
             href = await loc.get_attribute("href")
-            return href or ""
+            return href or "", cover_url
         finally:
             await page.close()
 
