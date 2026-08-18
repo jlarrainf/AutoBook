@@ -176,7 +176,7 @@ No hace falta `playwright install` ni descargar navegadores: se usa el Chrome/Ed
 | `session_info()` | Estado del navegador y carpeta de descargas. |
 | `calibre_status()` | Estado de la integración: calibredb, biblioteca, GUI abierta, dispositivo montado. |
 | `calibre_add(job_id \| path)` | Importa el libro a la biblioteca de Calibre con metadatos/portada; devuelve `book_id` (ver [docs/calibre.md](docs/calibre.md)). |
-| `calibre_send_to_device(book_id \| path, format?)` | Envía el libro al Kindle/Kobo montado, convirtiendo si hace falta (por defecto MOBI). |
+| `calibre_send_to_device(book_id \| path, format?)` | Envía el libro al Kindle/Kobo (unidad o MTP), convirtiendo si hace falta (por defecto AZW3). |
 
 ## Estructura del proyecto
 

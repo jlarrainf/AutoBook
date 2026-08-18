@@ -13,7 +13,7 @@ AutoBook puede importar los libros descargados a tu biblioteca de Calibre, y env
 | :--- | :--- |
 | `calibre_status()` | Estado: calibredb encontrado, ruta de la biblioteca, GUI de Calibre abierta, dispositivo montado. |
 | `calibre_add(job_id \| path)` | Importa a la biblioteca un libro descargado (por `job_id` de `book_download`) o un archivo local. Fija título, autor, idioma, serie, número de serie, identificador `annas:<md5>` y portada (capturada de la página del libro). Devuelve `book_id` y `duplicated`. |
-| `calibre_send_to_device(book_id \| path, format?)` | Envía el libro al dispositivo montado. Convierte al formato destino si hace falta (por defecto MOBI). Devuelve la ruta en el dispositivo. |
+| `calibre_send_to_device(book_id \| path, format?)` | Envía el libro al dispositivo montado (unidad o MTP). Convierte al formato destino si hace falta (por defecto AZW3). Devuelve la ruta en el dispositivo. |
 
 ## Flujo completo (prompt)
 
@@ -50,7 +50,7 @@ calibre:
   library_path: ""       # vacío = autodetectar
   calibredb: ""          # vacío = autodetectar
   auto_import: false     # true = importar solo, tras cada descarga
-  device_format: mobi    # mobi, azw3, epub, pdf
+  device_format: azw3    # azw3, mobi, epub, pdf
   device_path: ""        # vacío = autodetectar Kindle/Kobo montado
 ```
 
@@ -58,14 +58,14 @@ Overrides en `.env`: `CALIBRE_LIBRARY`, `CALIBRE_DB`, `CALIBRE_AUTO_IMPORT`, `DE
 
 ## Detección de dispositivos
 
-- **Kindle**: unidad extraíble con carpeta `documents/` → copia ahí.
-- **Kobo**: unidad extraíble con carpeta `.kobo` → copia a la raíz.
+- **Kindle**: unidad extraíble con carpeta `documents/`, o dispositivo portátil **MTP** visible en "Este equipo" (Kindle modernos que no se montan con letra de unidad) → copia a `documents/`.
+- **Kobo**: unidad extraíble con carpeta `.kobo`, o MTP → copia a la raíz.
 - **Manual**: `device_path` / `DEVICE_PATH` con la carpeta destino.
-- Si el dispositivo está conectado pero **no montado** (solo carga), `calibre_send_to_device` da error: cambia el modo USB a transferencia de archivos.
+- El envío por MTP usa el Shell de Windows: es asíncrono y puede tardar unos segundos en aparecer el archivo en el dispositivo.
 
 ## Notas y solución de problemas
 
 - **GUI de Calibre abierta**: `calibredb` normalmente funciona igual, pero si la base de datos está bloqueada, cierra la GUI y reintenta. Tras importar con la GUI abierta, puede que necesites refrescarla (F5) para ver el libro.
 - **Portada**: se captura de la página del md5 durante la descarga (se guarda en `downloads/.covers/`). Si el EPUB ya trae portada incrustada, Calibre usa esa.
 - **Expulsar el dispositivo**: usa "Expulsar de forma segura" antes de desconectar el Kindle.
-- **MOBI en Kindle**: es el formato por defecto por compatibilidad universal. Los Kindle modernos también leen AZW3 (`device_format: azw3`, mejor tipografía).
+- **Formato para Kindle**: por defecto AZW3 (buena tipografía, todos los Kindle modernos). `device_format: mobi` para Kindles muy viejos.

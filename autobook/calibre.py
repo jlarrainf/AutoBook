@@ -26,6 +26,35 @@ CALIBREDB_CANDIDATES = [
 
 SOURCE_FORMAT_PREFERENCE = ("EPUB", "AZW3", "MOBI", "PDF", "FB2", "TXT")
 
+MTP_LIST_PS = (
+    "$shell = New-Object -ComObject Shell.Application;"
+    "$shell.Namespace(17).Items() | ForEach-Object { $_.Name }"
+)
+
+MTP_COPY_PS = r"""
+param([string]$DeviceName, [string]$SubFolder, [string]$FilePath, [string]$DestName, [int]$TimeoutS = 600)
+$shell = New-Object -ComObject Shell.Application
+$dev = $shell.Namespace(17).Items() | Where-Object { $_.Name -eq $DeviceName } | Select-Object -First 1
+if (-not $dev) { Write-Output "ERROR:DEVICE_NOT_FOUND"; exit 2 }
+$folder = $dev.GetFolder
+$storage = $folder.Items() | Where-Object { $_.Name -like 'Internal*' } | Select-Object -First 1
+if ($storage) { $folder = $storage.GetFolder }
+if ($SubFolder) {
+  $sub = $folder.Items() | Where-Object { $_.Name -eq $SubFolder } | Select-Object -First 1
+  if (-not $sub) { Write-Output "ERROR:SUBFOLDER_NOT_FOUND"; exit 3 }
+  $folder = $sub.GetFolder
+}
+# MoveHere es asíncrono y no renombra: el archivo ya viene con el nombre final.
+$folder.MoveHere($FilePath, 0x14)
+$deadline = (Get-Date).AddSeconds($TimeoutS)
+while ((Get-Date) -lt $deadline) {
+  $item = $folder.Items() | Where-Object { $_.Name -eq $DestName } | Select-Object -First 1
+  if ($item) { Write-Output "OK"; exit 0 }
+  Start-Sleep -Seconds 2
+}
+Write-Output "ERROR:TIMEOUT"; exit 4
+"""
+
 
 class CalibreError(RuntimeError):
     pass
@@ -339,8 +368,75 @@ class CalibreIntegration:
                 except OSError:
                     continue
         except Exception:
+            pass
+        return self._detect_mtp()
+
+    def _detect_mtp(self) -> dict | None:
+        """Dispositivos portátiles (MTP) visibles en 'Este equipo': Kindle/Kobo
+        modernos que no se montan con letra de unidad."""
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", MTP_LIST_PS],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                creationflags=_no_window_flags(),
+            )
+        except Exception:
             return None
+        if r.returncode != 0:
+            return None
+        for line in r.stdout.splitlines():
+            name = line.strip()
+            if not name:
+                continue
+            low = name.lower()
+            if "kindle" in low:
+                return {"type": "kindle", "interface": "mtp", "path": name,
+                        "name": name, "dest_dir": "documents"}
+            if "kobo" in low:
+                return {"type": "kobo", "interface": "mtp", "path": name,
+                        "name": name, "dest_dir": ""}
         return None
+
+    def _copy_to_mtp(self, device_name: str, subfolder: str, src: Path, dest_name: str,
+                     timeout_s: int = 600) -> None:
+        # Shell no renombra al mover a MTP: se prepara una copia con el nombre final.
+        staging = Path(tempfile.gettempdir()) / "autobook_send"
+        staging.mkdir(exist_ok=True)
+        staged = staging / dest_name
+        shutil.copy2(src, staged)
+        script = Path(tempfile.gettempdir()) / f"autobook_mtp_{os.getpid()}.ps1"
+        script.write_text(MTP_COPY_PS, encoding="utf-8")
+        cmd = [
+            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+            "-DeviceName", device_name,
+            "-SubFolder", subfolder or "",
+            "-FilePath", str(staged),
+            "-DestName", dest_name,
+            "-TimeoutS", str(timeout_s),
+        ]
+        try:
+            r = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s + 60,
+                creationflags=_no_window_flags(),
+            )
+        except subprocess.TimeoutExpired:
+            raise CalibreError("El copiado al dispositivo MTP agotó el tiempo.")
+        finally:
+            script.unlink(missing_ok=True)
+            staged.unlink(missing_ok=True)
+        out = (r.stdout or "").strip()
+        if r.returncode != 0 or not out.startswith("OK"):
+            detail = out or (r.stderr or "").strip()[:300]
+            if "DEVICE_NOT_FOUND" in detail:
+                detail = "el dispositivo ya no está visible en 'Este equipo' (¿desconectado o modo solo carga?)"
+            elif "SUBFOLDER_NOT_FOUND" in detail:
+                detail = f"no se encontró la carpeta '{subfolder}' en el dispositivo"
+            raise CalibreError(f"No se pudo copiar al dispositivo MTP: {detail}")
 
     def _ebook_convert(self) -> Path:
         if self.calibredb:
@@ -389,9 +485,7 @@ class CalibreIntegration:
         else:
             raise CalibreError("Indica book_id o path.")
 
-        dest_dir = Path(device["dest_dir"])
         dest_name = f"{sanitize(name_base or src.stem)}.{fmt}"
-        dest = dest_dir / dest_name
 
         tmp_converted: Path | None = None
         if src.suffix.lower().lstrip(".") == fmt:
@@ -415,7 +509,14 @@ class CalibreIntegration:
             payload = tmp_converted
 
         try:
-            shutil.copy2(payload, dest)
+            if device.get("interface") == "mtp":
+                self._copy_to_mtp(device["name"], device.get("dest_dir") or "", payload, dest_name)
+                sub = device.get("dest_dir") or ""
+                dest_display = f"{device['name']}\\{sub}\\{dest_name}" if sub else f"{device['name']}\\{dest_name}"
+            else:
+                dest = Path(device["dest_dir"]) / dest_name
+                shutil.copy2(payload, dest)
+                dest_display = str(dest)
         finally:
             if tmp_converted and tmp_converted.exists():
                 tmp_converted.unlink(missing_ok=True)
@@ -423,7 +524,7 @@ class CalibreIntegration:
         return {
             "device": device["type"],
             "device_path": device["path"],
-            "dest": str(dest),
+            "dest": dest_display,
             "converted_from": src.suffix.lstrip(".").upper() if payload is not src else None,
             "source": str(src),
             "note": "Expulsa el dispositivo de forma segura antes de desconectarlo.",
