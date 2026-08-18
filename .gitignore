@@ -1,0 +1,25 @@
+# Entorno y dependencias
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Datos locales del usuario (NO subir)
+.env
+.env.local
+downloads/
+.chrome-profile/
+.edge-profile*/
+
+# Artefactos de prueba/experimentos
+.camoufox-fingerprint.json
+_*.py
+!**/__init__.py
+
+# Herramientas / SO
+.idea/
+.vscode/
+*.log
+.pytest_cache/
+.DS_Store
+Thumbs.db

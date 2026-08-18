@@ -1,0 +1,36 @@
+# Configuración de AutoBook
+# Los valores de .env tienen prioridad sobre este archivo.
+
+# Mirrors de Anna's Archive. El orden es prioridad.
+# La lista cambia seguido: consulta https://open-slum.org/ para ver cuáles están vivos.
+mirrors:
+  - "https://annas-archive.gl"
+  - "https://annas-archive.gd"
+  - "https://annas-archive.pk"
+
+defaults:
+  language: es        # ISO-639-1 (es, en, fr, de, it, ...)
+  format: epub        # epub, pdf, mobi, azw3, djvu, fb2
+
+download_dir: "downloads"
+
+browser:
+  # Navegador real con ventana vía CDP. DDoS-Guard detecta headless y el navegador
+  # real con ventana se verifica solo (sin CAPTCHA manual).
+  headless: false                 # no cambiar a true: el challenge de DDoS-Guard falla
+  user_data_dir: ".chrome-profile"  # perfil PERSISTENTE PROPIO: no toca tu Chrome/Edge normal
+  timeout_ms: 60000
+  cdp_port: 9333                  # puerto de depuración para conectar Playwright
+  # binary: ""                     # opcional: ruta a chrome.exe o msedge.exe. Vacío = auto (Chrome, luego Edge).
+  #                                # El tool NUNCA cierra tu navegador: usa un perfil aparte.
+
+behavior:
+  request_delay_min: 2            # segundos
+  request_delay_max: 6
+  slow_download_poll_interval: 15 # segundos entre comprobaciones de la cola
+  slow_download_timeout_min: 15   # tiempo máximo esperando la descarga
+  challenge_timeout_s: 120        # espera máxima a que DDoS-Guard verifique el navegador
+
+files:
+  layout: author_title            # <Autor>/<Título>.<ext>
+  overwrite: false                # si existe, añade sufijo en vez de sobrescribir
