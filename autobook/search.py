@@ -81,6 +81,58 @@ class Searcher:
 
         return self._search_via_browser(base, params, limit)
 
+    def build_advanced_query(
+        self,
+        query: str = "",
+        author: str = "",
+        title: str = "",
+        year_from: int | None = None,
+        year_to: int | None = None,
+        language: str | None = None,
+        format: str | None = None,
+        extension: str | None = None,
+        limit: int = 20,
+    ) -> str:
+        """Construye un query string para Anna's Archive combinando múltiples filtros.
+        Sintaxis: author:Foo title:Bar year:2010..2020 lang:es ext:epub"""
+        parts: list[str] = []
+        if query:
+            parts.append(query)
+        if author:
+            parts.append(f"author:{author}")
+        if title:
+            parts.append(f"title:{title}")
+        if year_from is not None or year_to is not None:
+            yf = str(year_from) if year_from is not None else ""
+            yt = str(year_to) if year_to is not None else ""
+            parts.append(f"year:{yf}..{yt}")
+        if language:
+            parts.append(f"lang:{language}")
+        ext = extension or format
+        if ext:
+            parts.append(f"ext:{ext}")
+        return " ".join(parts)
+
+    def search_advanced(
+        self,
+        query: str = "",
+        author: str = "",
+        title: str = "",
+        year_from: int | None = None,
+        year_to: int | None = None,
+        language: str | None = None,
+        format: str | None = None,
+        extension: str | None = None,
+        limit: int = 20,
+    ) -> list[Book]:
+        """Búsqueda avanzada combinando múltiples filtros."""
+        q = self.build_advanced_query(
+            query=query, author=author, title=title,
+            year_from=year_from, year_to=year_to,
+            language=language, format=format, extension=extension,
+        )
+        return self.search(q, language=language, extension=format or extension, limit=limit)
+
     def _search_via_browser(self, base: str, params: dict[str, str], limit: int) -> list[Book]:
         url = f"{base}/search?{urlencode(params)}"
         html = self._browser.goto_html(

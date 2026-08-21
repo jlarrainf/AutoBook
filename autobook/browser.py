@@ -12,6 +12,10 @@ from .config import BrowserConfig
 
 DDG_TITLE = "DDoS-Guard"
 SLOW_DOWNLOAD_SELECTOR = "a[href*='/slow_download/']"
+# External downloads
+SHOW_EXTERNAL_SELECTOR = "button:has-text('show external downloads'), a:has-text('show external downloads'), button:has-text('Show external downloads'), a:has-text('Show external downloads')"
+ZLIBRARY_LINK_SELECTOR = "a[href*='z-library'], a[href*='zlibrary'], a[href*='z-lib'], a[href*='1lib']"
+ZLIBRARY_DOWNLOAD_SELECTOR = "a.dlButton.addDownloadedBook, a.btn.dlButton, a[href*='/dl/']"
 
 CHROME_CANDIDATES = [
     Path("C:/Program Files/Google/Chrome/Application/chrome.exe"),
@@ -197,8 +201,14 @@ class BrowserSession:
             await page.close()
 
     def get_slow_download_href(self, md5_url: str, challenge_timeout_s: float = 120.0) -> str:
+        """Get the slow-download URL directly from Anna's Archive (primary method)."""
         self._ensure_started()
         return self._run_on_loop(self._get_slow_download_href(md5_url, challenge_timeout_s))
+
+    def get_external_download_href(self, md5_url: str, challenge_timeout_s: float = 120.0) -> str:
+        """Fallback: get the download URL from external sources (Z-Library)."""
+        self._ensure_started()
+        return self._run_on_loop(self._get_external_download_href(md5_url, challenge_timeout_s))
 
     async def _get_slow_download_href(self, md5_url: str, timeout_s: float) -> str:
         page = await self._context.new_page()
@@ -212,6 +222,64 @@ class BrowserSession:
                 return ""
             href = await loc.get_attribute("href")
             return href or ""
+        finally:
+            await page.close()
+
+    async def _get_external_download_href(self, md5_url: str, timeout_s: float) -> str:
+        """Fallback: click 'show external downloads', find Z-Library link, get download URL."""
+        page = await self._context.new_page()
+        try:
+            await page.goto(md5_url, wait_until="domcontentloaded", timeout=60000)
+            await self._wait_ready(page, timeout_s)
+
+            # Click "show external downloads" button
+            show_ext = page.locator(SHOW_EXTERNAL_SELECTOR).first
+            try:
+                await show_ext.wait_for(state="visible", timeout=10000)
+                await show_ext.click()
+                await page.wait_for_timeout(2000)
+            except Exception:
+                return ""
+
+            # Find Z-Library link
+            zlib_link = page.locator(ZLIBRARY_LINK_SELECTOR).first
+            try:
+                await zlib_link.wait_for(state="visible", timeout=15000)
+                zlib_href = await zlib_link.get_attribute("href")
+                if not zlib_href:
+                    return ""
+                if not zlib_href.startswith("http"):
+                    zlib_href = "https://z-library.se" + zlib_href
+            except Exception:
+                return ""
+
+            # Navigate to Z-Library book page
+            await page.goto(zlib_href, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(3000)
+
+            # Find and click download button
+            dl_btn = page.locator(ZLIBRARY_DOWNLOAD_SELECTOR).first
+            try:
+                await dl_btn.wait_for(state="visible", timeout=15000)
+                dl_href = await dl_btn.get_attribute("href")
+                if dl_href:
+                    if not dl_href.startswith("http"):
+                        dl_href = "https://z-library.se" + dl_href
+                    return dl_href
+            except Exception:
+                pass
+
+            # Alternative: look for any download link with epub/pdf
+            alt_dl = page.locator("a[href*='.epub'], a[href*='.pdf'], a[href*='.azw3'], a[href*='.mobi']").first
+            try:
+                await alt_dl.wait_for(state="visible", timeout=5000)
+                alt_href = await alt_dl.get_attribute("href")
+                if alt_href and not alt_href.startswith("http"):
+                    alt_href = "https://z-library.se" + alt_href
+                return alt_href or ""
+            except Exception:
+                return ""
+
         finally:
             await page.close()
 

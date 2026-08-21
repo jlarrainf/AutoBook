@@ -43,3 +43,15 @@ calibre:
   calibredb: ""                   # vacío = autodetectar (C:\Program Files\Calibre2\calibredb.exe o PATH)
   device_format: azw3             # formato destino para el dispositivo (azw3, mobi, epub, pdf)
   device_path: ""                 # vacío = autodetectar Kindle/Kobo (unidad o MTP); si no, ruta manual
+
+# Configuración para descargas por lotes
+batch:
+  delay_min: 5.0                  # delay extra entre descargas en batch (segundos)
+  delay_max: 15.0
+  max_concurrent: 1               # mantener 1 por ahora (Anna's Archive rate limits)
+  max_jobs: 1000                  # límite de jobs en memoria
+
+# Configuración de retención de jobs de descarga
+jobs:
+  retention_days: 7             # limpiar jobs "done" antiguos (días)
+  max_stored: 500               # límite máximo de jobs en memoria
