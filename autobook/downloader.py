@@ -35,6 +35,14 @@ class DownloadJob:
     cancelled: bool = False
 
 
+class _SlowLinkDead(Exception):
+    """Raised when a slow-download link was obtained but the actual file download
+    failed (e.g. the link was expired/dead). Tells the manager to skip the
+    remaining mirrors and go straight to the external (Z-Library) fallback, since
+    the link is book-specific and other mirrors won't help."""
+    pass
+
+
 class DownloadManager:
     def __init__(
         self,
@@ -206,6 +214,7 @@ class DownloadManager:
 
     def _run(self, job: DownloadJob) -> None:
         errors: list[str] = []
+        slow_link_dead = False
         for mirror in self._mirrors:
             try:
                 self._run_with_mirror(mirror, job)
@@ -213,11 +222,28 @@ class DownloadManager:
             except NeedsCaptchaError as exc:
                 self._set(job, status="waiting_captcha", error=str(exc))
                 return
+            except _SlowLinkDead as exc:
+                # The slow link was obtained but the download failed (expired/dead).
+                # The link is book-specific, so other mirrors won't help; go straight
+                # to the external fallback instead of retrying dead links.
+                errors.append(f"{mirror}: {exc}")
+                slow_link_dead = True
+                break
             except Exception as exc:
                 errors.append(f"{mirror}: {exc}")
                 self._set(job, status="error", stage="download", error=" | ".join(errors))
+        # All Anna's Archive mirrors failed (or the slow link was dead) ->
+        # try external downloads (Z-Library) as a last resort.
+        if slow_link_dead or job.dest is None:
+            try:
+                self._run_external(job)
+                return
+            except Exception as exc:
+                errors.append(f"external: {exc}")
+        self._set(job, status="error", stage="download", error=" | ".join(errors))
 
     def _run_with_mirror(self, mirror: str, job: DownloadJob) -> None:
+        """Primary path: download directly from Anna's Archive (slow download)."""
         if job.cancelled:
             return
         self._set(job, status="downloading", stage="download", progress=0.05)
@@ -243,6 +269,44 @@ class DownloadManager:
         )
         self._set(job, progress=0.3)
 
+        try:
+            self._browser.run_download(href, str(dest), timeout_ms=self._browser._cfg.timeout_ms)
+        except Exception as exc:
+            # Link obtained but the actual download failed (e.g. expired).
+            raise _SlowLinkDead(f"descarga slow falló: {exc}")
+        if job.cancelled:
+            return
+        self._set(job, dest=str(dest), progress=1.0)
+        self._pipeline(job)
+
+    def _run_external(self, job: DownloadJob) -> None:
+        """Fallback path: download via external sources (Z-Library) when the
+        Anna's Archive slow download is unavailable."""
+        if job.cancelled:
+            return
+        mirror = self._mirrors[0] if self._mirrors else ""
+        self._set(job, status="downloading", stage="download", progress=0.05, error=None)
+        href = self._browser.get_external_download_href(
+            f"{mirror}/md5/{job.md5}",
+            challenge_timeout_s=self._behavior_cfg.challenge_timeout_s,
+        )
+        if not href:
+            raise RuntimeError("enlace external (Z-Library) no disponible")
+        if not href.startswith("http"):
+            href = mirror + href
+        if job.cancelled:
+            return
+
+        dest = build_destination(
+            self._download_dir,
+            job.title,
+            normalize_author(job.author),
+            job.extension,
+            overwrite=self._file_cfg.overwrite,
+            series=job.series,
+            series_index=job.series_index,
+        )
+        self._set(job, progress=0.3)
         self._browser.run_download(href, str(dest), timeout_ms=self._browser._cfg.timeout_ms)
         if job.cancelled:
             return

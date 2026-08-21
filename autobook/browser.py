@@ -201,9 +201,14 @@ class BrowserSession:
             await page.close()
 
     def get_slow_download_href(self, md5_url: str, challenge_timeout_s: float = 120.0) -> str:
-        """Get download URL with fallback to external downloads (Z-Library)."""
+        """Get the slow-download URL directly from Anna's Archive (primary method)."""
         self._ensure_started()
-        return self._run_on_loop(self._get_download_href_with_fallback(md5_url, challenge_timeout_s))
+        return self._run_on_loop(self._get_slow_download_href(md5_url, challenge_timeout_s))
+
+    def get_external_download_href(self, md5_url: str, challenge_timeout_s: float = 120.0) -> str:
+        """Fallback: get the download URL from external sources (Z-Library)."""
+        self._ensure_started()
+        return self._run_on_loop(self._get_external_download_href(md5_url, challenge_timeout_s))
 
     async def _get_slow_download_href(self, md5_url: str, timeout_s: float) -> str:
         page = await self._context.new_page()
@@ -277,15 +282,6 @@ class BrowserSession:
 
         finally:
             await page.close()
-
-    async def _get_download_href_with_fallback(self, md5_url: str, timeout_s: float) -> str:
-        """Try slow download first, then external downloads as fallback."""
-        # Try slow download first
-        href = await self._get_slow_download_href(md5_url, timeout_s)
-        if href:
-            return href
-        # Fallback to external downloads
-        return await self._get_external_download_href(md5_url, timeout_s)
 
     def run_download(self, href: str, dest: str, timeout_ms: int = 600000) -> None:
         self._ensure_started()
