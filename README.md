@@ -182,17 +182,98 @@ La importación ya normaliza autor/título/sorts. Si el usuario quiere enriquece
 
 ## Herramientas MCP disponibles
 
+El servidor expone **50 herramientas** agrupadas en 7 categorías. Todas aceptan
+lenguaje natural desde la IA (no hace falta nombrar la tool).
+
+> **Estrategia de descarga**: el *slow download* de Anna's Archive es el método
+> principal (gratis, sin API key). El fallback a **Z-Library** solo se usa como
+> último recurso, cuando el slow download no da enlace o el link obtenido está
+> caído/expirado.
+
+### 1. Búsqueda y descarga (Anna's Archive)
+
 | Tool | Descripción |
 | :--- | :--- |
-| `book_search(query, language, format, limit)` | Busca y devuelve resultados con título, autor, idioma, formato, tamaño y **md5**. |
-| `book_download(md5, title, author, extension, series, series_index, language, to_calibre, to_device, device_format)` | Pipeline completo: descarga → (Calibre) → (dispositivo). Valida fail-fast. Devuelve `job_id`. |
-| `get_download_status(job_id)` | Estado del pipeline: `queued/downloading/importing/sending/done/waiting_captcha/error` + `stage` (`download/calibre/device/done`) y resultados por etapa. |
-| `set_download_dir(path)` | Cambia la carpeta de descargas en caliente. |
-| `check_mirrors()` | Comprueba qué mirrors están vivos. |
-| `session_info()` | Estado del navegador y carpeta de descargas. |
-| `calibre_status()` | Estado de la integración: calibredb, biblioteca, GUI abierta, dispositivo detectado (unidad o MTP). |
-| `calibre_add(job_id \| path)` | Importa a Calibre con metadatos limpios y sin duplicados (reintento de la etapa `calibre`). Devuelve `book_id`. |
+| `book_search(query, language, format, limit)` | Busca libros. Devuelve `title`, `author`, `language`, `extension`, `filesize` y **`md5`**. |
+| `book_search_advanced(query, language, format, author, ...)` | Búsqueda avanzada combinando múltiples filtros en un solo query. |
+| `book_download(md5, title, author, extension, series?, series_index?, language?, to_calibre?, to_device?, device_format?)` | Pipeline completo: descarga → (Calibre) → (dispositivo). Valida fail-fast y devuelve `job_id`. |
+| `book_download_batch(books, to_calibre?, to_device?, device_format?)` | Cola múltiples descargas en lote (`books`: lista de `{md5, title, author, extension, ...}`). |
+
+### 2. Control de descargas (jobs)
+
+| Tool | Descripción |
+| :--- | :--- |
+| `get_download_status(job_id)` | Estado del pipeline: `queued/downloading/importing/sending/done/waiting_captcha/error/cancelled` + `stage` (`download/calibre/device/done`) y resultados por etapa. |
+| `list_download_jobs(status?, limit?)` | Lista todos los jobs, opcionalmente filtrados por `status`. |
+| `cancel_download_job(job_id)` | Cancela un job en curso o en cola (borra el `.part` parcial). |
+| `retry_job(job_id)` | Reintenta un job que falló o fue cancelado (resetea estado y relanza). |
+| `retry_failed_jobs(stage?)` | Reintenta todos los jobs en `error`; opcionalmente solo del `stage` indicado. |
+| `set_download_dir(path)` | Cambia la carpeta de descargas en caliente (sin reiniciar). |
+| `check_mirrors()` | Comprueba qué mirrors de Anna's Archive responden y devuelve el principal en uso. |
+| `session_info()` | Estado de la sesión de navegador (Chrome vía CDP) y carpeta de descargas. |
+
+### 3. Integración con Calibre (importar / enviar a dispositivo)
+
+| Tool | Descripción |
+| :--- | :--- |
+| `calibre_status()` | Estado de la integración: `calibredb`, ruta de biblioteca, si la GUI está abierta y dispositivo detectado (unidad o MTP). |
+| `calibre_add(job_id \| path, title?, author?, language?, series?, series_index?, identifier_md5?)` | Importa a Calibre con metadatos limpios y sin duplicados (reintento de la etapa `calibre`). Devuelve `book_id`. |
 | `calibre_send_to_device(book_id \| path, format?)` | Incrusta metadatos, convierte (por defecto AZW3) y envía al Kindle/Kobo (reintento de la etapa `device`). |
+| `calibre_list_devices()` | Lista dispositivos Kindle/Kobo detectados (USB + MTP). |
+| `calibre_eject_device()` | Expulsa de forma segura un dispositivo conectado vía PowerShell. |
+
+### 4. Exploración de la biblioteca
+
+| Tool | Descripción |
+| :--- | :--- |
+| `calibre_search_books(title?, author?, series?, tag?, publisher?, format?, identifier?, has_cover?, has_formats?, query_string?, limit?, offset?)` | Búsqueda por campos estructurados (match parcial, case-insensitive) o query nativo de Calibre. |
+| `calibre_get_book_details(book_id)` | Detalles completos: título, autores, serie, tags, editorial, idiomas, identificadores, rating, portada y formatos. |
+| `calibre_list_authors(search?, min_books?, limit?, offset?, sort_by?)` | Autores con conteo de libros (filtra por nombre parcial y mínimo). |
+| `calibre_list_series(search?, min_books?, limit?, offset?)` | Series con conteo de libros y rango de números (`#1–#N`). |
+| `calibre_list_tags(search?, min_books?, limit?, offset?)` | Tags con conteo de libros. |
+| `calibre_list_publishers(search?, min_books?, limit?, offset?)` | Editoriales con conteo de libros. |
+| `calibre_library_stats()` | Estadísticas: total de libros, autores, series, tags, formatos y metadatos faltantes. |
+| `calibre_find_missing_metadata(limit?)` | Libros con metadata incompleta: sin portada, idioma, tags, formatos o editorial. |
+| `calibre_find_ghost_books(use_calibredb?, limit?, offset?)` | Libros en la DB cuya carpeta o archivos no existen en disco. |
+| `calibre_find_orphan_files(use_calibredb?, limit?)` | Directorios/archivos en la biblioteca sin registro en la DB. |
+| `calibre_find_orphan_links()` | Entradas huérfanas en tablas de enlace (book ID ya no existe). |
+
+### 5. Limpieza y deduplicación
+
+| Tool | Descripción |
+| :--- | :--- |
+| `calibre_find_duplicates(strategy?, limit?)` | Encuentra duplicados (`exact`/`isbn`/`fuzzy`). |
+| `calibre_suggest_dedup_resolution(book_ids)` | Dado un grupo duplicado, sugiere cuál conservar (calidad: formato → portada → tamaño → fecha). |
+| `calibre_find_author_variants(limit?)` | Grupos de autores que parecen la misma persona (casos, iniciales, acentos). |
+| `calibre_merge_authors(canonical_id, variant_ids, dry_run?)` | Une variantes de autor al autor canónico. |
+| `calibre_rename_author(author_id, new_name, new_sort?, dry_run?)` | Renombra un autor en la DB (incluye rename solo de mayúsculas/minúsculas). |
+| `calibre_normalize_uppercase(item_type, limit?, dry_run?)` | Convierte TÍTULOS/TAGS/EDITORIALES/SERIES en MAYÚSCULAS a Title Case. |
+| `calibre_find_compilation_coverage(author_id, min_compilation_kb?)` | Detecta qué obras individuales de un autor están cubiertas por sus recopilatorios. |
+| `calibre_analyze_author(author_id)` | Análisis completo de un autor: variantes, duplicados, huecos en series y metadatos faltantes. |
+
+### 6. Metadatos y mantenimiento
+
+| Tool | Descripción |
+| :--- | :--- |
+| `calibre_fetch_metadata(book_ids, source?, apply?, dry_run?)` | Obtiene metadata desde Open Library o Google Books para los libros indicados. |
+| `calibre_embed_metadata(book_ids?, only_formats?)` | Incrusta la metadata de la DB en los archivos (EPUB, AZW3, etc.). |
+| `calibre_verify_file_integrity(book_ids?)` | Verifica que todos los archivos de formato referenciados existan en disco. |
+| `calibre_bulk_set_metadata(updates, dry_run?)` | Aplica cambios de metadata a múltiples libros en una sola llamada. |
+| `calibre_fix_author_sort(limit?, dry_run?)` | Sincroniza `books.author_sort` con los `sort` de los autores vinculados. |
+| `calibre_fix_book_paths(book_ids?, batch_size?, offset?)` | Renombra directorios en disco para coincidir con author/title de la DB. |
+| `calibre_fix_series_numbers(series_id, assignments, dry_run?)` | Corrige la numeración de una serie asignando índices específicos. |
+| `calibre_cleanup_orphan_links(dry_run?)` | Elimina entradas huérfanas en tablas de enlace. |
+| `calibre_backup_database(suffix?)` | Copia de seguridad completa de `metadata.db`. |
+| `calibre_vacuum_database()` | Compacta la DB tras operaciones masivas (requiere Calibre cerrado). |
+| `calibre_export_catalog(output_file?, fields?)` | Exporta el catálogo a CSV, XML, EPUB o MOBI. |
+| `calibre_generate_report()` | Reporte integral: estadísticas, grupos de duplicados, ghost books y metadata faltante. |
+
+### 7. Búsqueda full-text (FTS)
+
+| Tool | Descripción |
+| :--- | :--- |
+| `calibre_fts_index(action?)` | Gestiona el índice full-text (reindex). |
+| `calibre_fts_search(query, limit?)` | Búsqueda full-text dentro del contenido de los libros. |
 
 ---
 
@@ -226,14 +307,15 @@ AutoBook/
 │   ├── anti-bot.md          # estrategia anti-detección (DDoS-Guard + Chrome/CDP)
 │   └── uso-opencode.md      # prompts de ejemplo y buenas prácticas
 └── autobook/
-    ├── config.py            # carga config.yaml + .env
+    ├── config.py            # carga config.yaml + .env (incluye bloques batch/jobs/calibre)
     ├── mirrors.py           # rotación y health check de mirrors
-    ├── search.py            # búsqueda con curl_cffi + Chrome/CDP + parseo
-    ├── browser.py           # BrowserSession: lanza Chrome/Edge real (CDP) y lo conduce por Playwright
-    ├── downloader.py        # pipeline descarga -> Calibre -> dispositivo (jobs en segundo plano)
+    ├── search.py            # búsqueda con curl_cffi + Chrome/CDP + parseo (básica y avanzada)
+    ├── browser.py           # BrowserSession: lanza Chrome/Edge real (CDP) y lo conduce por Playwright; slow download + fallback Z-Library
+    ├── downloader.py        # pipeline descarga -> Calibre -> dispositivo (jobs en segundo plano, cola, retry/cancel)
     ├── organize.py          # saneado de nombres, normalización de autores y sorts
     ├── calibre.py           # calibredb/ebook-convert: importar a biblioteca y enviar al dispositivo
-    └── server.py            # FastMCP: expone las tools
+    ├── calibre_mcp.py       # CalibreMCP: 38 tools de gestión de biblioteca (búsqueda, metadatos, limpieza, reportes)
+    └── server.py            # FastMCP: expone las 50 tools (descarga + Calibre)
 ```
 
 ## Limitaciones conocidas
