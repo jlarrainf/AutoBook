@@ -61,47 +61,100 @@ class CalibreMCP:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict]:
-        """Search the Calibre library by structured fields or native Calibre query syntax."""
+        """Search the Calibre library by structured fields or native Calibre query syntax.
+        Structured fields use direct SQL (partial/substring match, case-insensitive),
+        which is more reliable than native syntax for queries like author='Tolkien'."""
         self.cal._require()
         if query_string:
             out = self._calibredb_search(query_string, limit, offset)
-        else:
-            terms: list[str] = []
-            if title:
-                terms.append(f"title:\"{title}\"")
-            if author:
-                terms.append(f"author:\"{author}\"")
-            if series:
-                terms.append(f"series:\"{series}\"")
-            if tag:
-                terms.append(f"tag:\"{tag}\"")
-            if publisher:
-                terms.append(f"publisher:\"{publisher}\"")
-            if fmt:
-                terms.append(f"formats:{fmt.upper()}")
-            if identifier:
-                terms.append(f"identifiers:={identifier}")
-            if has_cover is True:
-                terms.append("cover:true")
-            elif has_cover is False:
-                terms.append("cover:false")
-            if has_formats is True:
-                terms.append("formats:true")
-            elif has_formats is False:
-                terms.append("formats:false")
-            query_string = " AND ".join(terms) if terms else ""
-            out = self._calibredb_search(query_string, limit, offset) if query_string else []
-        # Enrich each result with title/author and formats
-        for row in out:
-            bid = row.get("id")
-            if bid:
-                title_a, author_a = self.cal.book_title_author(bid)
-                row["title"] = title_a
-                row["author"] = author_a
-                formats = self.cal.book_formats(bid)
-                row["formats"] = list(formats.keys()) if formats else []
-                row["format_files"] = {k: str(v) for k, v in formats.items()}
-        return out
+            for row in out:
+                bid = row.get("id")
+                if bid:
+                    title_a, author_a = self.cal.book_title_author(bid)
+                    row["title"] = title_a
+                    row["author"] = author_a
+                    formats = self.cal.book_formats(bid)
+                    row["formats"] = list(formats.keys()) if formats else []
+                    row["format_files"] = {k: str(v) for k, v in formats.items()}
+            return out
+
+        # Build SQL query with JOINs for structured fields
+        sql = "SELECT DISTINCT b.id, b.title, b.sort FROM books b"
+        joins: list[str] = []
+        where: list[str] = []
+        params: list = []
+
+        if title:
+            where.append("LOWER(b.title) LIKE ?")
+            params.append(f"%{title.lower()}%")
+        if author:
+            joins.append("JOIN books_authors_link bal ON bal.book = b.id")
+            joins.append("JOIN authors a ON a.id = bal.author")
+            where.append("LOWER(a.name) LIKE ?")
+            params.append(f"%{author.lower()}%")
+        if series:
+            joins.append("JOIN books_series_link bsl ON bsl.book = b.id")
+            joins.append("JOIN series s ON s.id = bsl.series")
+            where.append("LOWER(s.name) LIKE ?")
+            params.append(f"%{series.lower()}%")
+        if tag:
+            joins.append("JOIN books_tags_link btl ON btl.book = b.id")
+            joins.append("JOIN tags t ON t.id = btl.tag")
+            where.append("LOWER(t.name) LIKE ?")
+            params.append(f"%{tag.lower()}%")
+        if publisher:
+            joins.append("JOIN books_publishers_link bpl ON bpl.book = b.id")
+            joins.append("JOIN publishers p ON p.id = bpl.publisher")
+            where.append("LOWER(p.name) LIKE ?")
+            params.append(f"%{publisher.lower()}%")
+        if fmt:
+            joins.append("JOIN data d ON d.book = b.id")
+            where.append("d.format = ?")
+            params.append(fmt.upper())
+        if identifier:
+            joins.append("JOIN identifiers i ON i.book = b.id")
+            where.append("(LOWER(i.type) LIKE ? OR LOWER(i.val) LIKE ?)")
+            params.append(f"%{identifier.lower()}%")
+            params.append(f"%{identifier.lower()}%")
+        if has_cover is True:
+            where.append("b.has_cover = 1")
+        elif has_cover is False:
+            where.append("b.has_cover = 0")
+        if has_formats is True:
+            where.append("b.id IN (SELECT DISTINCT book FROM data)")
+        elif has_formats is False:
+            where.append("b.id NOT IN (SELECT DISTINCT book FROM data)")
+
+        if joins:
+            sql += " " + " ".join(joins)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY b.id LIMIT ? OFFSET ?"
+        params.append(limit)
+        params.append(offset)
+
+        if not joins and not where:
+            return []
+
+        try:
+            with self.cal._connect_ro() as conn:
+                rows = conn.execute(sql, params).fetchall()
+        except sqlite3.Error:
+            return []
+
+        result = []
+        for bid, title, sort in rows:
+            formats = self.cal.book_formats(bid)
+            title_a, author_a = self.cal.book_title_author(bid)
+            result.append({
+                "id": bid,
+                "title": title,
+                "sort": sort,
+                "author": author_a,
+                "formats": list(formats.keys()) if formats else [],
+                "format_files": {k: str(v) for k, v in formats.items()},
+            })
+        return result
 
     def _calibredb_search(self, query: str, limit: int, offset: int) -> list[dict]:
         args = ["search", f"--limit={limit}", f"--offset={offset}", query]
@@ -147,47 +200,71 @@ class CalibreMCP:
         """Get complete details for a single book: title, authors, series, tags,
         publisher, formats, identifiers, languages, comments."""
         self.cal._require()
-        with self.cal._connect_ro() as conn:
-            row = conn.execute(
-                "SELECT b.title, b.sort, b.series, b.series_index, b.rating, b.timestamp, b.pubdate"
-                " FROM books b WHERE b.id = ?",
-                (book_id,),
-            ).fetchone()
-            if row is None:
-                return {"error": f"book_id {book_id} no encontrado"}
-            title, sort, series, series_index, rating, ts, pub = row
-            authors = conn.execute(
-                "SELECT a.name FROM authors a JOIN books_authors_link bal ON bal.author=a.id"
-                " WHERE bal.book=? ORDER BY a.name",
-                (book_id,),
-            ).fetchall()
-            tags = conn.execute(
-                "SELECT t.name FROM tags t JOIN books_tags_link bt ON bt.tag=t.id WHERE bt.book=?"
-                " ORDER BY t.name",
-                (book_id,),
-            ).fetchall()
-            # publisher
-            pub_row = conn.execute(
-                "SELECT p.name FROM publishers p JOIN books_publishers_link bp ON bp.publisher=p.id"
-                " WHERE bp.book=?",
-                (book_id,),
-            ).fetchone()
-            # languages
-            langs = conn.execute(
-                "SELECT l.name FROM languages l JOIN books_languages_link bl ON bl.language=l.id"
-                " WHERE bl.book=?",
-                (book_id,),
-            ).fetchall()
-            # identifiers
-            identifiers = conn.execute(
-                "SELECT type, val FROM identifiers WHERE book=?",
-                (book_id,),
-            ).fetchall()
-            # comments
-            comments = conn.execute(
-                "SELECT text FROM comments WHERE book=?",
-                (book_id,),
-            ).fetchone()
+        try:
+            with self.cal._connect_ro() as conn:
+                row = conn.execute(
+                    """
+                    SELECT b.title, b.sort, b.series_index, b.timestamp, b.pubdate,
+                           s.name AS series_name
+                    FROM books b
+                    LEFT JOIN books_series_link bsl ON bsl.book = b.id
+                    LEFT JOIN series s ON s.id = bsl.series
+                    WHERE b.id = ?
+                    """,
+                    (book_id,),
+                ).fetchone()
+                if row is None:
+                    return {"error": f"book_id {book_id} no encontrado"}
+                title, sort, series_index, ts, pub, series = row
+                authors = conn.execute(
+                    "SELECT a.name FROM authors a JOIN books_authors_link bal ON bal.author=a.id"
+                    " WHERE bal.book=? ORDER BY a.name",
+                    (book_id,),
+                ).fetchall()
+                tags = conn.execute(
+                    "SELECT t.name FROM tags t JOIN books_tags_link bt ON bt.tag=t.id WHERE bt.book=?"
+                    " ORDER BY t.name",
+                    (book_id,),
+                ).fetchall()
+                # publisher
+                pub_row = conn.execute(
+                    "SELECT p.name FROM publishers p JOIN books_publishers_link bp ON bp.publisher=p.id"
+                    " WHERE bp.book=?",
+                    (book_id,),
+                ).fetchone()
+                # languages
+                langs = conn.execute(
+                    "SELECT l.lang_code FROM languages l JOIN books_languages_link bl ON bl.lang_code=l.id"
+                    " WHERE bl.book=?",
+                    (book_id,),
+                ).fetchall()
+                # identifiers
+                identifiers = conn.execute(
+                    "SELECT type, val FROM identifiers WHERE book=?",
+                    (book_id,),
+                ).fetchall()
+                # comments
+                comments = conn.execute(
+                    "SELECT text FROM comments WHERE book=?",
+                    (book_id,),
+                ).fetchone()
+                # rating: in books_ratings_link -> ratings (newer Calibre)
+                try:
+                    rrow = conn.execute(
+                        "SELECT r.rating FROM ratings r JOIN books_ratings_link brl ON brl.rating=r.id"
+                        " WHERE brl.book=?",
+                        (book_id,),
+                    ).fetchone()
+                    rating = rrow[0] if rrow else None
+                except sqlite3.Error:
+                    # Fallback: maybe books table has rating column (older versions)
+                    try:
+                        rrow = conn.execute("SELECT rating FROM books WHERE id=?", (book_id,)).fetchone()
+                        rating = rrow[0] if rrow else None
+                    except sqlite3.Error:
+                        rating = None
+        except sqlite3.Error as exc:
+            return {"error": f"Error de base de datos: {exc}"}
         formats = self.cal.book_formats(book_id)
         return {
             "book_id": book_id,
@@ -237,8 +314,8 @@ class CalibreMCP:
                 SELECT s.id, s.name, s.sort, cnt.cnt, mn.mn, mx.mx
                 FROM series s
                 JOIN (SELECT series, COUNT(*) AS cnt FROM books_series_link GROUP BY series) cnt ON cnt.series=s.id
-                JOIN (SELECT series, MIN(series_index) AS mn FROM books_series_link GROUP BY series) mn ON mn.series=s.id
-                JOIN (SELECT series, MAX(series_index) AS mx FROM books_series_link GROUP BY series) mx ON mx.series=s.id
+                JOIN (SELECT bsl.series, MIN(b.series_index) AS mn FROM books_series_link bsl JOIN books b ON b.id=bsl.book GROUP BY bsl.series) mn ON mn.series=s.id
+                JOIN (SELECT bsl.series, MAX(b.series_index) AS mx FROM books_series_link bsl JOIN books b ON b.id=bsl.book GROUP BY bsl.series) mx ON mx.series=s.id
                 WHERE (? = '' OR s.name LIKE '%' || ? || '%')
                   AND (? <= 0 OR cnt.cnt >= ?)
                 ORDER BY s.sort
@@ -359,8 +436,7 @@ class CalibreMCP:
         self.cal._require()
         with self.cal._connect_ro() as conn:
             no_cover = conn.execute(
-                "SELECT b.id FROM books b LEFT JOIN data d ON d.book=b.id WHERE b.id NOT IN (SELECT DISTINCT book FROM data WHERE format='COVER' OR d.name LIKE 'cover%')"
-                f" LIMIT {limit}").fetchall()
+                f"SELECT b.id FROM books b WHERE b.has_cover = 0 LIMIT {limit}").fetchall()
             no_lang = conn.execute(
                 "SELECT b.id FROM books b WHERE b.id NOT IN (SELECT book FROM books_languages_link)"
                 f" LIMIT {limit}").fetchall()
