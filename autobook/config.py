@@ -27,6 +27,20 @@ class BehaviorConfig:
 
 
 @dataclass
+class BatchConfig:
+    delay_min: float = 5.0       # extra delay entre descargas en batch
+    delay_max: float = 15.0
+    max_concurrent: int = 1      # mantener 1 (Anna's Archive rate limits)
+    max_jobs: int = 1000         # límite de jobs en memoria
+
+
+@dataclass
+class JobsConfig:
+    retention_days: int = 7     # limpiar jobs "done" antiguos
+    max_stored: int = 500       # límite de jobs en memoria
+
+
+@dataclass
 class FileConfig:
     layout: str = "author_title"
     overwrite: bool = False
@@ -51,6 +65,8 @@ class Config:
     behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     files: FileConfig = field(default_factory=FileConfig)
     calibre: CalibreConfig = field(default_factory=CalibreConfig)
+    batch: BatchConfig = field(default_factory=BatchConfig)
+    jobs: JobsConfig = field(default_factory=JobsConfig)
 
     @classmethod
     def load(cls, base_dir: Path | None = None) -> "Config":
@@ -70,6 +86,8 @@ class Config:
             behavior=BehaviorConfig(**raw.get("behavior", {})),
             files=FileConfig(**raw.get("files", {})),
             calibre=CalibreConfig(**raw.get("calibre", {})),
+            batch=BatchConfig(**raw.get("batch", {})),
+            jobs=JobsConfig(**raw.get("jobs", {})),
         )
         cfg._apply_env(base_dir)
         return cfg
