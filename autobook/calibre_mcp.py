@@ -774,16 +774,18 @@ class CalibreMCP:
         """Find orphan entries in link tables (book ID no longer exists)."""
         self.cal._require()
         result = []
-        link_tables = [
-            "books_authors_link", "books_tags_link", "books_series_link",
-            "books_publishers_link", "books_languages_link", "books_ratings_link",
-            "books_comments_link", "books_custom_column_link",
-        ]
         with self.cal._connect_ro() as conn:
-            for tbl in link_tables:
-                count = conn.execute(
-                    f"SELECT COUNT(*) FROM {tbl} WHERE book NOT IN (SELECT id FROM books)"
-                ).fetchone()[0]
+            # Only consider link tables that actually exist in this Calibre version
+            existing = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'books_%_link'"
+            ).fetchall()}
+            for tbl in sorted(existing):
+                try:
+                    count = conn.execute(
+                        f"SELECT COUNT(*) FROM {tbl} WHERE book NOT IN (SELECT id FROM books)"
+                    ).fetchone()[0]
+                except sqlite3.Error:
+                    continue
                 if count > 0:
                     result.append({"table": tbl, "orphan_count": count})
         return result
@@ -1062,9 +1064,12 @@ class CalibreMCP:
             name, sort = author
             books = conn.execute(
                 """
-                SELECT b.id, b.title, b.series, b.series_index, b.timestamp
-                FROM books b JOIN books_authors_link bal ON bal.book=b.id
-                WHERE bal.author=? ORDER BY b.series, b.series_index
+                SELECT b.id, b.title, s.name AS series_name, b.series_index, b.timestamp
+                FROM books b
+                JOIN books_authors_link bal ON bal.book=b.id
+                LEFT JOIN books_series_link bsl ON bsl.book=b.id
+                LEFT JOIN series s ON s.id=bsl.series
+                WHERE bal.author=? ORDER BY s.name, b.series_index
                 """,
                 (author_id,),
             ).fetchall()
@@ -1156,14 +1161,27 @@ class CalibreMCP:
     # Full-Text Search
     # ------------------------------------------------------------------ #
 
-    def fts_index(self, action: str = "status") -> dict:
-        """Manage the full-text search index: status, enable, disable, reindex."""
+    def fts_index(self, action: str = "reindex") -> dict:
+        """Manage the full-text search index.
+
+        This calibredb version exposes FTS only via the `fts search` command
+        (the index is maintained automatically by Calibre). `action='reindex'`
+        rebuilds it; any other action returns an explanatory message."""
         self.cal._require()
+        if action not in ("reindex", "index"):
+            return {
+                "action": action,
+                "note": (
+                    "Este calibredb solo expone FTS vía 'fts search'. "
+                    "El índice se mantiene automáticamente; usá action='reindex' "
+                    "para reconstruirlo."
+                ),
+            }
         try:
-            out = self.cal._run_calibredb(["fts", action], timeout=300)
-            return {"action": action, "output": out}
+            out = self.cal._run_calibredb(["fts", "index"], timeout=600)
+            return {"action": "reindex", "output": out or "índice reconstruido"}
         except CalibreError as exc:
-            return {"error": str(exc)}
+            return {"action": "reindex", "error": str(exc)}
 
     def fts_search(self, query: str, limit: int = 50) -> list[dict]:
         """Full-text search in book contents."""

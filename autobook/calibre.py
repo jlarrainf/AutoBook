@@ -156,7 +156,10 @@ class CalibreIntegration:
     # -- calibredb --
 
     def _run_calibredb(self, args: list[str], timeout: int = 300) -> str:
-        cmd = [str(self.calibredb), "--with-library", str(self.library), *args]
+        # NOTE: --with-library must come AFTER the subcommand and its args (e.g.
+        # `catalog` requires the output filename before any option, and placing
+        # global options before it breaks parsing).
+        cmd = [str(self.calibredb), *args, "--with-library", str(self.library)]
         try:
             result = subprocess.run(
                 cmd,
